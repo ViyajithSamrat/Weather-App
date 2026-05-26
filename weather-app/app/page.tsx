@@ -88,14 +88,30 @@ export default async function Home({
 
   const { lat = DEFAULT_LAT, lon = DEFAULT_LON } = await searchParams;
 
-  const [current, airPollution, uvIndex, hourlyForecast, dailyForecast] =
-    await Promise.all([
-      getCurrentWeather(Number(lat), Number(lon)),
-      getAirPollution(Number(lat), Number(lon)),
-      getUVIndex(Number(lat), Number(lon)),
-      getHourlyForecast4Days(Number(lat), Number(lon), FORECAST_HOURS),
-      getDailyForecast16Days(Number(lat), Number(lon), FORECAST_DAYS),
-    ]);
+  let current, airPollution, uvIndex, hourlyForecast, dailyForecast;
+  try {
+    [current, airPollution, uvIndex, hourlyForecast, dailyForecast] =
+      await Promise.all([
+        getCurrentWeather(Number(lat), Number(lon)),
+        getAirPollution(Number(lat), Number(lon)),
+        getUVIndex(Number(lat), Number(lon)),
+        getHourlyForecast4Days(Number(lat), Number(lon), FORECAST_HOURS),
+        getDailyForecast16Days(Number(lat), Number(lon), FORECAST_DAYS),
+      ]);
+  } catch {
+    return (
+      <div className="dark:bg-background flex h-screen items-center justify-center bg-zinc-100">
+        <div className="rounded-2xl bg-white p-10 text-center shadow-md dark:bg-zinc-900">
+          <h1 className="mb-2 text-2xl font-semibold">Weather data unavailable</h1>
+          <p className="text-muted-foreground text-sm">
+            The OpenWeather API key is not yet active.
+            <br />
+            New keys can take up to 2 hours to activate — try again shortly.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   /*
    * Logs for debugging
