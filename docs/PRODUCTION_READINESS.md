@@ -61,13 +61,11 @@ BLOCKED    █░░░░░░░░░░░░░░░░░░░   5%
   ```bash
   aws ssm put-parameter --name "/weather-app/dev/OPENWEATHER_API_KEY" \
     --value "<real-key>" --type SecureString --region us-east-1
-  aws ssm put-parameter --name "/weather-app/dev/NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN" \
-    --value "<real-token>" --type String --region us-east-1
   ```
 - [ ] **Populate Secrets Manager** (staging/prod):
   ```bash
   aws secretsmanager create-secret --name "weather-app/staging/secrets" \
-    --secret-string '{"OPENWEATHER_API_KEY":"<key>","NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN":"<token>"}'
+    --secret-string '{"OPENWEATHER_API_KEY":"<key>"}'
   ```
 
 ---
@@ -88,7 +86,7 @@ BLOCKED    █░░░░░░░░░░░░░░░░░░░   5%
 | Check | Status | Notes |
 |-------|--------|-------|
 | OpenWeather key server-side only | READY | Never in NEXT_PUBLIC, only in server actions |
-| Mapbox token URL-restricted | CONDITIONS | Must be restricted by domain in Mapbox dashboard before prod |
+| No client-side API keys at all | READY | Maps use keyless OpenFreeMap; geocoding goes through server-side proxy |
 | API error handling | CONDITIONS | Partial — weather.ts has try/catch but no fallback UI |
 | Rate limiting awareness | CONDITIONS | No client-side throttle — rapid city adds could exhaust free tier |
 
@@ -113,7 +111,7 @@ BLOCKED    █░░░░░░░░░░░░░░░░░░░   5%
 | No secrets in Docker image | Yes | Yes | READY |
 | No secrets in git history | Yes | Yes | READY |
 | ECS task-level secret injection | Yes | Yes | READY |
-| Mapbox token domain-locked | CONDITIONS | CONDITIONS | Lock before prod |
+| No client-side API keys bundled | Yes | Yes | READY |
 
 ### 3.2 IAM
 
@@ -251,7 +249,6 @@ CapacityProviderStrategy:
 - [ ] All Gate 2 checks passed
 - [ ] Secrets Manager secrets populated for staging
 - [ ] NAT Gateway deployed (`EnableNatGateway: true`)
-- [ ] Mapbox token restricted by URL in Mapbox dashboard
 - [ ] Trivy scan shows zero CRITICAL CVEs
 - [ ] HTTPS/TLS configured (ACM cert + Route53 record)
 - [ ] Manual approval SNS subscription confirmed (email link clicked)

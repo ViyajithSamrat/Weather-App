@@ -85,8 +85,6 @@ jobs:
           file: ./Dockerfile
           push: false
           tags: weather-app:ci-validate
-          build-args: |
-            NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=ci_placeholder_token
           # Cache layers between runs using GitHub Actions cache
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -116,8 +114,6 @@ jobs:
           file: ./Dockerfile
           load: true
           tags: weather-app:scan
-          build-args: |
-            NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=ci_placeholder_token
           cache-from: type=gha
 
       - name: Run Trivy vulnerability scanner

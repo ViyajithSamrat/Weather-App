@@ -48,7 +48,6 @@ dev: ## Start Next.js dev server (hot-reload, no Docker)
 
 build: ## Build Docker image locally (runner stage)
 	docker build \
-	  --build-arg NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=$${NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN:-build_placeholder} \
 	  --target runner \
 	  --tag $(APP_NAME):local \
 	  --file Dockerfile \
@@ -84,7 +83,6 @@ typecheck: ## Run TypeScript type check (no emit)
 
 validate-docker: ## Validate Dockerfile build (no push)
 	docker buildx build \
-	  --build-arg NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=ci_placeholder \
 	  --file Dockerfile \
 	  --target runner \
 	  --load \

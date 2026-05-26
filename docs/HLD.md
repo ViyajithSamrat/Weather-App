@@ -54,13 +54,13 @@ The platform provides:
 | API | Env Var | Side | Secret Store |
 |---|---|---|---|
 | OpenWeather | `OPENWEATHER_API_KEY` | Server-only | SSM SecureString (dev/qa) / Secrets Manager (staging/prod) |
-| Mapbox | `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` | Client + Server | SSM String (dev/qa) / Secrets Manager (staging/prod) |
+| OpenFreeMap base tiles | — | Client | No key required (free, open-source) |
 
 ### Key Architectural Notes
 
-- **`NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN`** is baked into the client bundle at `next build` time. It must be supplied as a Docker `--build-arg`. Restrict the token by domain/URL in the Mapbox dashboard.
 - **`OPENWEATHER_API_KEY`** is server-side only; it is injected at ECS task runtime and never appears in the browser.
-- The app uses **Next.js Server Actions** and a **tile proxy API route** (`/api/weather/[layer]/...`) to keep the OpenWeather key server-side.
+- The app uses **Next.js Server Actions** and two **proxy API routes** (`/api/weather/[layer]/...` for tile overlays, `/api/geocode` for city search) so the OpenWeather key never leaves the server.
+- **MapLibre GL** (open-source fork of Mapbox GL) renders maps. Base tiles come from **OpenFreeMap** which requires no API key — there is nothing to bake into the client bundle.
 - Build output uses `output: 'standalone'` — the `server.js` entry point does NOT require a separate Next.js installation in the runner image.
 
 ---
@@ -108,7 +108,7 @@ The platform provides:
 └─────────────────────────────────────────────────────────────────────────────┘
 
   Developer ──► GitHub ──► ALB DNS ──► ECS Task ──► OpenWeather API
-                                                  └──► Mapbox API
+                                                  └──► OpenFreeMap (base tiles, keyless)
 ```
 
 ---
@@ -181,8 +181,8 @@ CodePipeline (per branch/environment)
     │   └── GitHub v2 connection → S3 artifact
     │
     ├── Stage 2: BUILD (CodeBuild)
-    │   ├── Pull secrets from SSM / Secrets Manager
-    │   ├── docker build --build-arg NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN=...
+    │   ├── Pull secrets from SSM / Secrets Manager (runtime only)
+    │   ├── docker build (no client-side secrets needed)
     │   ├── docker push ECR (:<commit-hash> + :latest)
     │   └── Output: imagedefinitions.json
     │
@@ -261,7 +261,7 @@ Each component gets its own IAM role with only required permissions:
 - Non-root user (`nextjs`, uid 1001) in all containers
 - Read-only root filesystem (Week 3 hardening)
 - No secrets in Docker image layers — all injected at ECS task runtime
-- `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` is a restricted public token (URL-locked in Mapbox dashboard)
+- No client-side API keys exposed: maps use keyless OpenFreeMap; geocoding + tile fetching go through server-side proxy routes
 
 ---
 

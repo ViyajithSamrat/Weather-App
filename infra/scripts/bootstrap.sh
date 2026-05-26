@@ -19,7 +19,7 @@
 # Prerequisites:
 #   - AWS CLI v2, Docker, jq, bash 4+
 #   - AWS credentials configured (aws configure or IAM role)
-#   - Real API keys in hand (OpenWeather + Mapbox)
+#   - Real OpenWeather API key in hand
 # =============================================================================
 set -euo pipefail
 
@@ -95,19 +95,6 @@ case "$ENV" in
       --description "OpenWeather API key for ${APP_NAME} ${ENV}" \
       > /dev/null
     ok "SSM: /weather-app/${ENV}/OPENWEATHER_API_KEY"
-
-    MAPBOX_TOKEN=$(collect_secret "NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN" \
-      "Mapbox public token (get at account.mapbox.com/access-tokens — restrict by URL!)")
-    aws ssm put-parameter \
-      --name "/weather-app/${ENV}/NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN" \
-      --value "$MAPBOX_TOKEN" \
-      --type String \
-      --overwrite \
-      --region "$AWS_REGION" \
-      --tags "Key=Environment,Value=${ENV}" "Key=Application,Value=${APP_NAME}" \
-      --description "Mapbox public token for ${APP_NAME} ${ENV}" \
-      > /dev/null
-    ok "SSM: /weather-app/${ENV}/NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN"
     ;;
 
   staging|prod)
@@ -118,13 +105,10 @@ case "$ENV" in
 
     OWM_KEY=$(collect_secret "OPENWEATHER_API_KEY" \
       "OpenWeather API key (prod key — keep it secure!)")
-    MAPBOX_TOKEN=$(collect_secret "NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN" \
-      "Mapbox public token (prod token — restrict by URL in Mapbox dashboard!)")
 
     SECRET_JSON=$(jq -n \
       --arg owm "$OWM_KEY" \
-      --arg mapbox "$MAPBOX_TOKEN" \
-      '{"OPENWEATHER_API_KEY": $owm, "NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN": $mapbox}')
+      '{"OPENWEATHER_API_KEY": $owm}')
 
     # Create or update
     if aws secretsmanager describe-secret \

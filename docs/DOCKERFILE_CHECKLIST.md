@@ -54,7 +54,7 @@ docker inspect node:20-alpine --format '{{index .RepoDigests 0}}'
 | 3.2 | Non-root group created (`nodejs`, gid 1001) | `[x]` | `addgroup --system` |
 | 3.3 | `/app` directory owned by `nextjs:nodejs` | `[x]` | `chown -R nextjs:nodejs /app` |
 | 3.4 | No secrets in `ENV`, `ARG`, or `RUN` instructions | `[x]` | Only placeholder values in build args |
-| 3.5 | `NEXT_PUBLIC_MAPBOX_ACCESS_TOKEN` build-arg uses placeholder (real value in ECR) | `[x]` | `build_placeholder` default |
+| 3.5 | No client-side API keys baked into the image (no `NEXT_PUBLIC_*` secrets used) | `[x]` | Maps use keyless OpenFreeMap; OpenWeather key stays server-only |
 | 3.6 | `.dockerignore` excludes `.env`, `.env.local`, `node_modules`, `.git` | `[x]` | See `.dockerignore` |
 | 3.7 | No `--allow-root`, `sudo`, or `chmod 777` patterns | `[x]` | Verified by grep |
 
