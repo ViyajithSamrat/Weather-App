@@ -1,8 +1,8 @@
 # Dockerfile Validation Checklist
 
-**Version:** 1.0  
-**Date:** 2026-05-21  
-**Scope:** `Dockerfile` at repo root (production image)
+**Version:** 1.1  
+**Date:** 2026-05-28  
+**Scope:** `Dockerfile` at repo root — built by CodeBuild, deployed to EC2 t2.micro via SSM
 
 ---
 
@@ -172,9 +172,10 @@ docker inspect weather-app-local --format '{{.State.Health.Status}}'
 
 ## Sign-off
 
-| Environment | Validated By | Date | Signature |
-|-------------|-------------|------|-----------|
-| dev | | | |
-| qa | | | |
-| staging | | | |
-| prod | | | |
+| Environment | Validated By | Date | Notes |
+|-------------|-------------|------|-------|
+| dev (local) | DevOps Platform Team | 2026-05-28 | `docker compose up --build` + HTTP 200 confirmed |
+| dev (EC2) | | | Pending `cdk deploy` execution |
+| qa | | | Pending Week 3 |
+| staging | | | Pending Week 3 |
+| prod | | | Pending Week 4 |

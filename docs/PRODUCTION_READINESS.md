@@ -1,72 +1,66 @@
 # Production Deployment Readiness Assessment
 
-**Version:** 1.0  
-**Date:** 2026-05-21  
-**Scope:** Enterprise Weather Application — ECS Fargate on AWS  
-**Reviewer:** DevOps Platform Team  
+**Version:** 2.0  
+**Date:** 2026-05-28  
+**Scope:** Enterprise Weather Application — EC2 t2.micro on AWS (CDK)  
+**Reviewer:** DevOps Platform Team
 
 ---
 
 ## Executive Summary
 
-This assessment evaluates the weather application's readiness for production deployment across all four environments (dev → qa → staging → prod). Each section rates the current state as **READY**, **READY WITH CONDITIONS**, or **BLOCKED**.
-
 ```
-Overall Status: READY WITH CONDITIONS (Week 1 Scaffold)
+Overall Status: WEEK 2 COMPLETE — DEV ENVIRONMENT READY
 
-READY      ████████████████░░░░  80%
-CONDITIONS ████░░░░░░░░░░░░░░░░  15%
-BLOCKED    █░░░░░░░░░░░░░░░░░░░   5%
+Week 1 (App + Docker)    ████████████████████  COMPLETE
+Week 2 (CDK IaC — Dev)   ████████████████████  COMPLETE
+Week 3 (Monitoring, QA)  ░░░░░░░░░░░░░░░░░░░░  PENDING
+Week 4 (Staging + Prod)  ░░░░░░░░░░░░░░░░░░░░  PENDING
 ```
 
 ---
 
 ## 1. Infrastructure Readiness
 
-### 1.1 CloudFormation Stacks
+### 1.1 CDK Stacks (Dev Environment)
 
 | Stack | File | Status | Notes |
-|-------|------|--------|-------|
-| ECR Repository | `infra/cloudformation/stacks/ecr.yml` | READY | Scan-on-push, lifecycle policy, immutable tags for prod |
-| ECS Fargate | `infra/cloudformation/stacks/ecs.yml` | READY | VPC, ALB, Fargate service, IAM roles |
-| CI/CD Pipeline | `infra/cloudformation/stacks/pipeline.yml` | READY | CodePipeline + CodeBuild + SNS approval |
+|---|---|---|---|
+| VPC | `infra/cdk/lib/stacks/vpc-stack.ts` | READY | 10.0.0.0/16, 1 AZ, public subnet, no NAT |
+| Security | `infra/cdk/lib/stacks/security-stack.ts` | READY | SG (port 80 only), EC2 IAM role (least-privilege) |
+| ECR | `infra/cdk/lib/stacks/ecr-stack.ts` | READY | Scan on push, max 3 images, auto-delete on destroy |
+| EC2 | `infra/cdk/lib/stacks/ec2-stack.ts` | READY | t2.micro AL2023, Elastic IP, Docker + deploy script |
+| Pipeline | `infra/cdk/lib/stacks/pipeline-stack.ts` | READY | CodePipeline + CodeBuild + SSM deploy |
 
-**Deployment order (non-negotiable):**
+All 5 stacks: TypeScript type-checked (`tsc --noEmit` exit 0) and synthesised (`cdk synth --all` exit 0, 5 CloudFormation templates generated).
+
+### 1.2 Network Architecture (Dev)
+
+| Check | Status | Notes |
+|---|---|---|
+| VPC with isolated CIDR | READY | 10.0.0.0/16 (unique per env via EnvConfig) |
+| Public subnet for EC2 | READY | 1x AZ (maxAzs: 1 for free tier) |
+| Internet Gateway | READY | Auto-created by CDK VPC construct |
+| NAT Gateway | N/A | Not needed — EC2 is in public subnet |
+| Elastic IP | READY | Stable address, survives instance stop/start |
+| Security group | READY | Inbound port 80 only; no port 22 (SSM Session Manager used instead) |
+
+### 1.3 Pre-Deploy Actions Required (one-time)
+
+```bash
+# 1. Create GitHub CodeStar connection (manual, console only):
+#    AWS Console → Developer Tools → Settings → Connections → Create (GitHub)
+#    Paste the ARN into infra/cdk/config/dev.ts → github.connectionArn
+
+# 2. Bootstrap CDK (once per account/region):
+cd infra/cdk && npx cdk bootstrap aws://<ACCOUNT_ID>/us-east-1
+
+# 3. Seed the OpenWeather API key into SSM:
+./infra/cdk/scripts/seed-ssm.sh dev <OPENWEATHER_API_KEY>
+
+# 4. Deploy all stacks:
+npx cdk deploy --all --require-approval never
 ```
-1. ./infra/scripts/deploy.sh <env> ecr
-2. Push placeholder image to ECR
-3. ./infra/scripts/deploy.sh <env> ecs
-4. ./infra/scripts/deploy.sh <env> pipeline
-```
-
-### 1.2 Network Architecture
-
-| Check | Dev/QA | Staging/Prod | Status |
-|-------|--------|--------------|--------|
-| VPC with isolated CIDR | 10.0-1.0/16 | 10.2-3.0/16 | READY |
-| Public subnets for ALB | 2x AZ | 2x AZ | READY |
-| Private subnets for ECS | Skipped (cost) | 2x AZ | READY |
-| NAT Gateway | No (tasks in public) | Yes | READY |
-| Internet Gateway | Yes | Yes | READY |
-| Security groups (ALB→ECS only) | Yes | Yes | READY |
-
-### 1.3 Pre-Deploy Actions Required
-
-- [ ] **Create CodeStar GitHub Connection** (one-time, manual):
-  ```
-  AWS Console → CodePipeline → Settings → Connections → Create connection
-  Paste ARN into pipeline.yml parameter or parameter JSON files
-  ```
-- [ ] **Populate SSM Parameters** (dev/qa):
-  ```bash
-  aws ssm put-parameter --name "/weather-app/dev/OPENWEATHER_API_KEY" \
-    --value "<real-key>" --type SecureString --region us-east-1
-  ```
-- [ ] **Populate Secrets Manager** (staging/prod):
-  ```bash
-  aws secretsmanager create-secret --name "weather-app/staging/secrets" \
-    --secret-string '{"OPENWEATHER_API_KEY":"<key>"}'
-  ```
 
 ---
 
@@ -75,29 +69,29 @@ BLOCKED    █░░░░░░░░░░░░░░░░░░░   5%
 ### 2.1 Next.js Configuration
 
 | Check | Status | Evidence |
-|-------|--------|---------|
-| `output: 'standalone'` set | READY | `next.config.ts` line 5 |
-| TypeScript strict mode | READY | `tsconfig.json` |
-| Environment variable validation | CONDITIONS | No runtime env var validation (Zod/t3-env) — add Week 2 |
-| Error boundary components | BLOCKED | Not implemented — unhandled API errors crash the page |
+|---|---|---|
+| `output: 'standalone'` set | READY | `weather-app/next.config.ts` |
+| TypeScript strict mode | READY | `weather-app/tsconfig.json` |
+| MapLibre GL (no Mapbox) | READY | All Mapbox refs removed — `map.tsx` uses OpenFreeMap |
+| Error boundary (API failure) | READY | `page.tsx` — try/catch on `Promise.all`, shows friendly fallback |
+| Runtime env var validation | CONDITIONS | No Zod/t3-env schema — add Week 3 |
 
 ### 2.2 API Integration
 
 | Check | Status | Notes |
-|-------|--------|-------|
-| OpenWeather key server-side only | READY | Never in NEXT_PUBLIC, only in server actions |
-| No client-side API keys at all | READY | Maps use keyless OpenFreeMap; geocoding goes through server-side proxy |
-| API error handling | CONDITIONS | Partial — weather.ts has try/catch but no fallback UI |
-| Rate limiting awareness | CONDITIONS | No client-side throttle — rapid city adds could exhaust free tier |
+|---|---|---|
+| OpenWeather key server-side only | READY | Never in `NEXT_PUBLIC_*`, only in Server Actions |
+| No client-side API keys | READY | Maps use keyless OpenFreeMap; OWM routed through server proxy |
+| API error handling | READY | Try/catch in page.tsx; graceful fallback UI on 4xx |
+| Rate limiting awareness | CONDITIONS | No client-side throttle — Week 3 |
 
-### 2.3 Performance
+### 2.3 Local Development
 
-| Check | Target | Status | Notes |
-|-------|--------|--------|-------|
-| First Contentful Paint (FCP) | < 2s | CONDITIONS | Not measured — requires Lighthouse CI |
-| Time to Interactive (TTI) | < 3.5s | CONDITIONS | Not measured |
-| Bundle size | < 500 KB | CONDITIONS | Not measured — run `next build` and inspect |
-| Image optimization | N/A | READY | No user images; weather icons are SVG/CSS |
+| Check | Status | Notes |
+|---|---|---|
+| Docker Compose (local) | READY | `docker compose up --build` → http://localhost |
+| API key injection | READY | Via `env_file: .env.local` (gitignored) |
+| App verified live | READY | HTTP 200, full dashboard, real OWM data confirmed |
 
 ---
 
@@ -105,41 +99,41 @@ BLOCKED    █░░░░░░░░░░░░░░░░░░░   5%
 
 ### 3.1 Secrets Management
 
-| Check | Dev/QA | Staging/Prod | Status |
-|-------|--------|--------------|--------|
-| API keys in SSM/Secrets Manager | SSM SecureString | Secrets Manager | READY |
-| No secrets in Docker image | Yes | Yes | READY |
+| Check | Dev | Staging/Prod | Status |
+|---|---|---|---|
+| API key in SSM SecureString | SSM | Secrets Manager | READY (pattern) |
 | No secrets in git history | Yes | Yes | READY |
-| ECS task-level secret injection | Yes | Yes | READY |
-| No client-side API keys bundled | Yes | Yes | READY |
+| No secrets in Docker image | Yes | Yes | READY |
+| No `NEXT_PUBLIC_*` secrets | Yes | Yes | READY |
+| Key injected at runtime (not build) | Yes | Yes | READY |
 
 ### 3.2 IAM
 
 | Role | Principle | Status |
-|------|-----------|--------|
-| `CodeBuildRole` | ECR push + SSM read + logs only | READY |
-| `CodePipelineRole` | S3 + CodeBuild + ECS update + PassRole | READY |
-| `ECSTaskExecutionRole` | ECR pull + logs + SSM/Secrets read | READY |
-| `ECSTaskRole` | CloudWatch logs write only | READY |
+|---|---|---|
+| `weather-app-dev-ec2-role` | ECR pull (1 repo) + SSM GetParameter (1 param ARN) + SSM Core | READY |
+| CodeBuild role | ECR push/pull (1 repo) + SSM SendCommand (1 instance + 1 doc) | READY |
+| CodePipeline role | S3 + CodeBuild start + CodeStar connection | READY |
 
 ### 3.3 Container Security
 
 | Check | Status | Notes |
-|-------|--------|-------|
-| Non-root user (uid 1001) | READY | `USER nextjs` |
+|---|---|---|
+| Non-root user (uid 1001) | READY | `USER nextjs` in runner stage |
 | Minimal base image (Alpine) | READY | ~150 MB final image |
-| No capability escalation | READY | No `--privileged` or `CAP_ADD` |
-| Read-only root filesystem | BLOCKED | Not implemented — Week 3 task |
-| Image vulnerability scan | CONDITIONS | Automated in staging buildspec; not in dev |
+| No port 22 open | READY | Shell via SSM Session Manager only |
+| No `--privileged` flag | READY | Not used in Docker run |
+| Read-only root filesystem | CONDITIONS | Not set — Week 3 |
+| Image vulnerability scan | READY | ECR `imageScanOnPush: true` on every push |
 
 ### 3.4 Network Security
 
 | Check | Status | Notes |
-|-------|--------|-------|
-| ALB → ECS SG restriction | READY | Port 3000 from ALB SG only |
-| HTTPS/TLS on ALB | BLOCKED | HTTP-only (port 80) — requires ACM cert + Route53 |
-| Security headers (HSTS, CSP) | CONDITIONS | Not configured in Next.js — add `next.config.ts` headers |
-| WAF on ALB | CONDITIONS | Not deployed — recommended for production |
+|---|---|---|
+| SG: port 80 inbound only | READY | No port 22, no port 443 yet |
+| HTTPS/TLS | BLOCKED | HTTP-only in dev (no ALB). Add ACM + ALB in staging/prod |
+| Security headers (HSTS, CSP) | CONDITIONS | Not configured in `next.config.ts` — Week 3 |
+| WAF | CONDITIONS | Not deployed — consider for prod |
 
 ---
 
@@ -148,151 +142,136 @@ BLOCKED    █░░░░░░░░░░░░░░░░░░░   5%
 ### 4.1 Observability
 
 | Check | Status | Notes |
-|-------|--------|-------|
-| CloudWatch Logs (ECS task stdout) | READY | Log group `/ecs/weather-app-<env>` |
-| Log retention policy | READY | 7 days dev/qa, configurable |
-| Container Insights | READY | Enabled on ECS cluster |
-| Application-level logging | CONDITIONS | No structured JSON logging from Next.js |
-| Distributed tracing (X-Ray) | BLOCKED | Not implemented — optional Week 3 |
-| Alerting (CloudWatch Alarms) | BLOCKED | No alarms defined — add Week 2 |
+|---|---|---|
+| CloudWatch Logs (CodeBuild) | READY | 7-day retention (configurable via `logRetentionDays`) |
+| EC2 container logs | CONDITIONS | `docker logs` accessible via SSM; structured logging not set up |
+| Application-level logging | CONDITIONS | No JSON log format — Week 3 |
+| CloudWatch Alarms | BLOCKED | No alarms defined — Week 3 |
+| Distributed tracing | BLOCKED | Not implemented — optional Week 4 |
 
 ### 4.2 Deployment
 
 | Check | Status | Notes |
-|-------|--------|-------|
-| Rolling deployment | READY | 50% min healthy, 200% max |
-| Deployment circuit breaker | READY | Automatic rollback on health check failure |
-| Health check grace period | READY | 60s start period |
-| Zero-downtime deploy | READY | ECS rolling + ALB connection draining (30s) |
-| Manual rollback procedure | READY | See `docs/BRANCHING.md` rollback section |
+|---|---|---|
+| Automated pipeline deploy | READY | Push to `dev` → CodePipeline → SSM → EC2 |
+| Deploy script idempotent | READY | `/opt/deploy.sh` can be re-run safely |
+| Container restart | READY | `docker rm -f` + `docker run --restart unless-stopped` |
+| Zero-downtime deploy | CONDITIONS | Brief stop during restart (~2–3s). ALB needed for true zero-downtime |
+| Manual rollback procedure | READY | SSM Session Manager → pull previous image tag + restart |
 
-### 4.3 Disaster Recovery
+### 4.3 Disaster Recovery (Dev)
 
 | Check | RTO | RPO | Status |
-|-------|-----|-----|--------|
-| ECS task auto-restart | < 2 min | 0 | READY |
-| ECS service desired count restore | < 5 min | 0 | READY |
-| Previous image re-deploy | < 10 min | 0 | READY |
-| CloudFormation stack rollback | < 20 min | 0 | READY |
-| Full environment rebuild | < 60 min | 0 | READY (IaC complete) |
+|---|---|---|---|
+| Container auto-restart on crash | < 1s | 0 | READY (`--restart unless-stopped`) |
+| EC2 re-deploy from pipeline | < 10 min | 0 | READY |
+| Full CDK re-deploy from scratch | < 20 min | 0 | READY (IaC complete) |
+| Tear down + rebuild | < 25 min | 0 | READY (`cdk destroy --all && cdk deploy --all`) |
 
 ### 4.4 CI/CD Pipeline
 
 | Check | Status | Notes |
-|-------|--------|-------|
-| GitHub Actions lint + typecheck | READY | `.github/workflows/ci.yml` |
-| Docker build validation in CI | READY | All PRs to protected branches |
-| Trivy scan on staging/prod PRs | READY | SARIF uploaded to GitHub Security |
-| CodePipeline (dev) | READY | Auto-deploy on push to `dev` |
-| CodePipeline (qa) | READY | Auto-deploy on push to `qa` |
-| CodePipeline (staging) | READY | Manual approval gate via SNS |
-| CodePipeline (prod) | READY | Manual approval gate via SNS |
-| Hotfix path (hotfix/* → staging) | READY | Documented in `docs/BRANCHING.md` |
+|---|---|---|
+| GitHub Actions (lint + typecheck + Docker build) | READY | `.github/workflows/ci.yml` on all PRs |
+| Trivy vulnerability scan | READY | GitHub Security SARIF upload on PRs to main |
+| CodePipeline (dev) | READY | Auto-deploy on push to `dev` branch |
+| CodePipeline (qa/staging/prod) | DESIGNED | Added when Week 3+ deploys those envs |
 
 ---
 
 ## 5. Cost Readiness
 
-### 5.1 Monthly Estimate (after Free Tier)
+### Monthly Estimate (DEV — AWS Free Tier)
 
-| Environment | Compute | ALB | ECR | Secrets | Total/mo |
-|-------------|---------|-----|-----|---------|---------|
-| dev | ~$0 (0 tasks off-hours) | $16 | $0 | $0 | ~$16 |
-| qa | ~$0 (0 tasks off-hours) | $16 | $0 | $0 | ~$16 |
-| staging | ~$15 (2 tasks, 0.5 vCPU) | $16 | $1 | $0.80 | ~$33 |
-| prod | ~$15 (2 tasks, 0.5 vCPU) | $16 | $1 | $0.80 | ~$33 |
-| **Total** | | | | | **~$98/mo** |
-
-### 5.2 Cost Optimisation Actions
-
-| Action | Savings | Effort | Priority |
-|--------|---------|--------|----------|
-| Scale dev/qa to 0 tasks outside 9-5 | ~70% dev/qa compute | Low | High |
-| Use shared ALB for dev/qa (host-based routing) | ~$32/mo | Medium | Medium |
-| ECR lifecycle policy (keep 10 images) | ~$0.50/mo | Done | Done |
-| Spot instances for dev/qa (Fargate Spot) | ~50% compute | Low | High |
-
-**Fargate Spot for dev/qa** (add to `ecs.yml` ECSService):
-```yaml
-CapacityProviderStrategy:
-  - CapacityProvider: FARGATE_SPOT
-    Weight: 1
-  - CapacityProvider: FARGATE
-    Weight: 0
-    Base: 0
-```
+| Service | Config | Cost |
+|---|---|---|
+| EC2 t2.micro | 750 free hours/month | $0 |
+| EBS gp3 8 GB | 30 GB free | $0 |
+| Elastic IP | attached to running instance | $0 |
+| ECR | < 500 MB (max 3 images) | $0 |
+| CodePipeline | 1 pipeline (1 free) | $0 |
+| CodeBuild SMALL | < 100 min/month | $0 |
+| SSM Parameter Store | standard tier | $0 |
+| CloudWatch Logs | < 5 GB | $0 |
+| **DEV Total** | | **$0/month** |
 
 ---
 
-## 6. Go/No-Go Gate Checklist
+## 6. Go/No-Go Checklist
 
-### Gate 1: Dev Deployment
+### Gate 1: Week 1 — App + Docker ✅ COMPLETE
 
-- [ ] ECR stack deployed (`weather-app-dev-ecr`)
-- [ ] SSM parameters populated (`/weather-app/dev/*`)
-- [ ] ECS stack deployed (`weather-app-dev-ecs`)
-- [ ] Placeholder image in ECR (ECS service healthy)
-- [ ] Pipeline stack deployed (`weather-app-dev-pipeline`)
-- [ ] GitHub CodeStar connection `Active`
-- [ ] First CI pipeline run completes successfully
-- [ ] ALB DNS resolves and returns HTTP 200
+- [x] App builds and runs locally (`docker compose up --build`)
+- [x] Weather dashboard renders with real OWM data
+- [x] MapLibre GL + OpenFreeMap maps load (no Mapbox key needed)
+- [x] API key injected via `.env.local` only (gitignored)
+- [x] No secrets in git history or Docker image
+- [x] Error boundary: API key absent → friendly message (not crash)
+- [x] GitHub Actions CI passes
 
-### Gate 2: QA Deployment
+### Gate 2: Week 2 — CDK IaC (Dev) ✅ COMPLETE
 
-- [ ] All Gate 1 checks passed
-- [ ] SSM parameters populated for qa environment
-- [ ] QA stack trio deployed (ecr, ecs, pipeline)
-- [ ] Integration tests defined and pass in QA
+- [x] All 5 CDK stacks type-check (`tsc --noEmit` exit 0)
+- [x] All 5 CDK stacks synthesise (`cdk synth --all` exit 0, 5 templates generated)
+- [x] `EnvConfig` interface enables future QA/staging/prod with zero stack changes
+- [x] `DockerEc2Construct` reusable across environments
+- [x] Security: IAM least-privilege, no port 22, SSM for secrets
+- [x] Cost: $0/month (all free tier)
+- [x] `Week-2` branch pushed to GitHub (isolated from `main`)
+- [ ] AWS deploy executed (requires CodeStar connection ARN + `cdk bootstrap` + SSM seed)
 
-### Gate 3: Staging Deployment
+### Gate 3: Week 3 — Monitoring + QA Environment (PENDING)
 
-- [ ] All Gate 2 checks passed
-- [ ] Secrets Manager secrets populated for staging
-- [ ] NAT Gateway deployed (`EnableNatGateway: true`)
-- [ ] Trivy scan shows zero CRITICAL CVEs
-- [ ] HTTPS/TLS configured (ACM cert + Route53 record)
-- [ ] Manual approval SNS subscription confirmed (email link clicked)
-- [ ] Performance baseline captured (Lighthouse)
-- [ ] Load test executed (Artillery / k6)
+- [ ] CloudWatch Alarms (EC2 CPU, CodeBuild failure, 5xx errors)
+- [ ] HTTPS/TLS (ACM cert + ALB for staging/prod)
+- [ ] Security headers in `next.config.ts` (HSTS, CSP, X-Frame)
+- [ ] Runtime env var validation (Zod/t3-env)
+- [ ] Structured JSON logging from Next.js
+- [ ] QA CDK environment deployed
+- [ ] Read-only root filesystem
 
-### Gate 4: Production Deployment
+### Gate 4: Week 4 — Staging + Production (PENDING)
 
-- [ ] All Gate 3 checks passed
-- [ ] ≥ 2 approvers confirmed production PR
-- [ ] Rollback procedure rehearsed in staging
-- [ ] On-call engineer notified and available
-- [ ] Deployment window scheduled (avoid peak traffic)
-- [ ] CloudWatch Alarms configured for error rate + latency
-- [ ] Secrets Manager rotation schedule configured
-
----
-
-## 7. Week 1 Completion Status
-
-| Deliverable | Status | Location |
-|-------------|--------|----------|
-| Complete folder structure scaffold | COMPLETE | All directories and files created |
-| HLD document | COMPLETE | `docs/HLD.md` |
-| Branching strategy diagram | COMPLETE | `docs/BRANCHING.md` |
-| AWS architecture diagram (ASCII) | COMPLETE | `docs/HLD.md` §3 |
-| Dockerfile validation checklist | COMPLETE | `docs/DOCKERFILE_CHECKLIST.md` |
-| Production readiness assessment | COMPLETE | This document |
-| ECR CloudFormation stack | COMPLETE | `infra/cloudformation/stacks/ecr.yml` |
-| ECS CloudFormation stack | COMPLETE | `infra/cloudformation/stacks/ecs.yml` |
-| Pipeline CloudFormation stack | COMPLETE | `infra/cloudformation/stacks/pipeline.yml` |
-| Buildspecs (dev, qa, staging, prod) | COMPLETE | `.aws/buildspecs/` |
-| GitHub Actions CI workflow | COMPLETE | `.github/workflows/ci.yml` |
-| Local Docker Compose | COMPLETE | `docker-compose.yml` |
+- [ ] Staging CDK environment deployed with manual approval gate
+- [ ] Production CDK environment deployed
+- [ ] Secrets Manager (staging/prod — replaces SSM)
+- [ ] Rollback procedure rehearsed
+- [ ] Load test (Artillery or k6)
+- [ ] On-call runbook written
 
 ---
 
-## 8. Week 2 Priorities
+## 7. Week Completion Summary
 
-1. **HTTPS/TLS** — ACM certificate + Route53 hosted zone + ALB HTTPS listener (443)
-2. **CloudWatch Alarms** — ECS task health, ALB 5xx rate, response time P99
-3. **Runtime env var validation** — Zod/t3-env schema to fail fast on missing secrets
-4. **Security headers** — `next.config.ts` `headers()` function (HSTS, CSP, X-Frame)
-5. **Error boundary** — React error boundary for weather API failures
-6. **Read-only root filesystem** — `readonlyRootFilesystem: true` in task definition
-7. **Fargate Spot** — For dev/qa cost reduction
-8. **Structured logging** — JSON log format for CloudWatch Insights queries
+| Deliverable | Week | Status | Location |
+|---|---|---|---|
+| Next.js app (React 19, TypeScript, Tailwind 4) | 1 | COMPLETE | `weather-app/` |
+| MapLibre GL + OpenFreeMap (Mapbox replaced) | 1 | COMPLETE | `weather-app/components/weather/map.tsx` |
+| OWM free-tier API integration | 1 | COMPLETE | `weather-app/actions/weather.ts` |
+| Multi-stage Dockerfile (Alpine, non-root) | 1 | COMPLETE | `Dockerfile` |
+| Docker Compose local setup | 1 | COMPLETE | `docker-compose.yml` |
+| GitHub Actions CI workflow | 1 | COMPLETE | `.github/workflows/ci.yml` |
+| Error boundary (API fallback UI) | 1 | COMPLETE | `weather-app/app/page.tsx` |
+| CDK TypeScript project (5 stacks) | 2 | COMPLETE | `infra/cdk/` |
+| VPC stack (public subnet, no NAT) | 2 | COMPLETE | `infra/cdk/lib/stacks/vpc-stack.ts` |
+| Security stack (SG + IAM least-privilege) | 2 | COMPLETE | `infra/cdk/lib/stacks/security-stack.ts` |
+| ECR stack (lifecycle rules, scan on push) | 2 | COMPLETE | `infra/cdk/lib/stacks/ecr-stack.ts` |
+| EC2 stack (t2.micro + EIP + UserData) | 2 | COMPLETE | `infra/cdk/lib/stacks/ec2-stack.ts` |
+| Pipeline stack (CodePipeline + SSM deploy) | 2 | COMPLETE | `infra/cdk/lib/stacks/pipeline-stack.ts` |
+| DockerEc2Construct (reusable) | 2 | COMPLETE | `infra/cdk/lib/constructs/docker-ec2-construct.ts` |
+| Multi-env EnvConfig interface | 2 | COMPLETE | `infra/cdk/config/env-config.ts` |
+| SSM seed script | 2 | COMPLETE | `infra/cdk/scripts/seed-ssm.sh` |
+| Week-2 branch isolated on GitHub | 2 | COMPLETE | `origin/Week-2` |
+
+---
+
+## 8. Week 3 Priorities
+
+1. **CloudWatch Alarms** — EC2 CPU, CodeBuild failure rate, app 5xx
+2. **HTTPS/TLS** — ACM cert + Route53 + ALB (staging/prod only)
+3. **Security headers** — `next.config.ts` `headers()` (HSTS, CSP, X-Frame-Options)
+4. **Runtime env validation** — Zod/t3-env schema to fail fast on missing secrets
+5. **Structured logging** — JSON log format for CloudWatch Insights
+6. **Read-only root filesystem** — `readonlyRootFilesystem` in docker run
+7. **QA environment deploy** — `config/qa.ts` + `deployEnvironment(app, qaConfig)`
+8. **Rate limiting** — Simple in-memory throttle on geocode API route
