@@ -1,7 +1,7 @@
 # =============================================================================
 # STAGE 1: deps — install only production-relevant node_modules
 # =============================================================================
-FROM node:20-alpine AS deps
+FROM public.ecr.aws/docker/library/node:20-alpine AS deps
 
 # Install libc compat for Alpine (required by some native Node modules)
 RUN apk add --no-cache libc6-compat
@@ -20,7 +20,7 @@ RUN npm install
 # =============================================================================
 # STAGE 2: builder — compile the Next.js application
 # =============================================================================
-FROM node:20-alpine AS builder
+FROM public.ecr.aws/docker/library/node:20-alpine AS builder
 
 WORKDIR /app
 
@@ -39,7 +39,7 @@ RUN npm run build
 # =============================================================================
 # STAGE 3: runner — minimal production image
 # =============================================================================
-FROM node:20-alpine AS runner
+FROM public.ecr.aws/docker/library/node:20-alpine AS runner
 
 WORKDIR /app
 
