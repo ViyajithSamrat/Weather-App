@@ -1,405 +1,323 @@
-# Enterprise Weather Application — High Level Design (HLD)
+# High-Level Design — Enterprise Weather Application
 
-**Version:** 2.0  
-**Date:** 2026-05-28  
-**Author:** DevOps Platform Team  
-**Status:** Week 2 Complete — CDK Dev Environment
-
----
-
-## Table of Contents
-
-1. [Executive Summary](#1-executive-summary)
-2. [Application Analysis](#2-application-analysis)
-3. [Architecture Overview](#3-architecture-overview)
-4. [Environment Strategy](#4-environment-strategy)
-5. [Container Strategy](#5-container-strategy)
-6. [CI/CD Pipeline Design](#6-cicd-pipeline-design)
-7. [Infrastructure as Code Strategy](#7-infrastructure-as-code-strategy)
-8. [Security Architecture](#8-security-architecture)
-9. [Cost Model](#9-cost-model)
-10. [Branching & Promotion Strategy](#10-branching--promotion-strategy)
-11. [Decisions Log (ADR)](#11-decisions-log-adr)
+**Version:** 3.0
+**Date:** 2026-06-04
+**Status:** Week 2 Complete — Dev deployed to AWS ap-south-1 (Mumbai)
 
 ---
 
 ## 1. Executive Summary
 
-This document describes the end-to-end DevOps platform for the **Enterprise Weather Application** — a Next.js 16 / React 19 weather dashboard containerised with Docker and deployed on AWS EC2 via an automated CodePipeline CI/CD system managed entirely through **AWS CDK TypeScript**.
+A production-grade weather dashboard built on Next.js 16 and deployed to AWS via a fully automated CDK pipeline. The architecture is:
 
-The platform provides:
-- **4 fully isolated environments** (dev → qa → staging → prod) — **dev implemented in Week 2; QA/staging/prod designed and ready to deploy**
-- **Immutable, container-based deployments** via ECR + EC2 t2.micro (free tier)
-- **Infrastructure as Code** via AWS CDK TypeScript (compiles to CloudFormation — zero manual console work)
-- **Least-privilege security** (IAM, SSM Parameter Store, no hardcoded credentials, no open SSH)
-- **100% AWS Free Tier** for the dev environment — zero cloud cost
+- **Multi-environment**: dev → qa → staging → prod, each isolated in its own VPC
+- **Free-tier compliant**: $0/month for all environments on AWS Free Tier
+- **Security-first**: No port 22, secrets in SSM, non-root containers, IP-restricted access
+- **Observable**: Container logs shipped to CloudWatch via awslogs driver (no SSH needed)
+- **Parameterised**: Same CDK code deploys all 4 environments — only an `EnvConfig` object changes
 
 ---
 
-## 2. Application Analysis
+## 2. Repository Architecture (Polyrepo)
 
-| Property | Value |
-|---|---|
-| Framework | Next.js 16.1.6 |
-| Runtime | React 19.2.3 (RSC + Server Actions) |
-| Language | TypeScript 5 |
-| CSS | Tailwind CSS 4 |
-| State | Zustand 5 |
-| Maps | MapLibre GL (open-source, no API key) |
-| Map tiles | OpenFreeMap (free, keyless) |
-| Build output | `.next/standalone` (self-contained Node server) |
-| Default port | 3000 |
-| Node target | 20 LTS |
+```
+GitHub: ViyajithSamrat
+│
+├── Weather-App            ← App code (Next.js, Docker, GitHub Actions)
+│   └── Branches: main, Week-1, dev, qa, staging
+│
+└── Weather-App-IAC        ← Infrastructure code (AWS CDK TypeScript)
+    └── Branches: main, Week-2
+```
 
-### External API Dependencies
+**Why polyrepo?**
+- Independent review cycles: app and infra reviewed separately
+- Separate access control: only DevOps engineers touch infrastructure
+- Clean history: Dockerfile changes don't pollute the infra commit log
 
-| API | Env Var | Side | Secret Store (dev) |
+---
+
+## 3. Application Stack
+
+| Layer | Technology | Version | Notes |
 |---|---|---|---|
-| OpenWeather | `OPENWEATHER_API_KEY` | Server-only | SSM Parameter Store (SecureString) |
-| OpenFreeMap base tiles | — | Client | No key required |
-
-### Key Architectural Notes
-
-- **`OPENWEATHER_API_KEY`** is server-side only — injected at container runtime from SSM. Never in `NEXT_PUBLIC_*`, never in the Docker image, never in git.
-- The app uses **Next.js Server Actions** and two **proxy API routes** (`/api/weather/[layer]/...` for tile overlays, `/api/geocode` for city search) so the key never reaches the browser.
-- **MapLibre GL** (open-source Mapbox fork, identical API) renders maps with **OpenFreeMap** tiles — no third-party API key required client-side. Mapbox was removed entirely.
-- Build output uses `output: 'standalone'` — the `server.js` entry does not require a separate Next.js installation in the runner image, cutting the final Docker image size by ~60%.
-
----
-
-## 3. Architecture Overview
-
-### DEV Environment (Week 2 — Implemented)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          AWS CLOUD  (us-east-1)                             │
-│                                                                             │
-│  ┌──────────────────────────────────────────────────────────────────────┐  │
-│  │  VPC  (weather-app-dev-vpc)  10.0.0.0/16                            │  │
-│  │                                                                      │  │
-│  │  ┌─────────────────────────────────────────────────────────────┐    │  │
-│  │  │  PUBLIC SUBNET  (1x AZ — free tier, no NAT needed)          │    │  │
-│  │  │                                                              │    │  │
-│  │  │  ┌──────────────────────────────────────────────────────┐   │    │  │
-│  │  │  │  EC2 t2.micro  (Amazon Linux 2023)                   │   │    │  │
-│  │  │  │  ├─ Docker: weather-app container → port 3000        │   │    │  │
-│  │  │  │  ├─ Elastic IP  (stable public address)              │   │    │  │
-│  │  │  │  ├─ SSM Agent  (Session Manager + Run Command)       │   │    │  │
-│  │  │  │  └─ SG: inbound port 80 only, no port 22            │   │    │  │
-│  │  │  └──────────────────────────────────────────────────────┘   │    │  │
-│  │  └─────────────────────────────────────────────────────────────┘    │  │
-│  └──────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-│  ┌─────────────────────────────────────────────────────────────────────┐   │
-│  │  CI/CD Platform                                                      │   │
-│  │                                                                      │   │
-│  │  GitHub ──► CodePipeline ──► CodeBuild ──► ECR push                 │   │
-│  │                                │                                     │   │
-│  │               Source Stage     └──► SSM Run Command                  │   │
-│  │               Build Stage           → EC2: /opt/deploy.sh            │   │
-│  │               (build + push              (docker pull + restart)      │   │
-│  │                + SSM deploy)                                          │   │
-│  └─────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│  ┌───────────────────┐  ┌──────────────────┐  ┌──────────────────────┐    │
-│  │  ECR              │  │  SSM Param Store │  │  CloudWatch Logs     │    │
-│  │  weather-app-dev  │  │  /weather-app/   │  │  CodeBuild logs      │    │
-│  │  (max 3 images)   │  │  dev/OWM_KEY     │  │  7-day retention     │    │
-│  └───────────────────┘  └──────────────────┘  └──────────────────────┘    │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-  Developer ──► GitHub ──► EC2 Elastic IP :80 ──► Next.js :3000 ──► OpenWeather API
-                                                                  └──► OpenFreeMap (keyless)
-```
-
-### Future Environments (QA / Staging / Prod — Designed, Not Yet Deployed)
-
-QA and staging/prod will follow the same CDK pattern. Adding them requires only:
-1. A new `config/qa.ts` (or `staging.ts` / `prod.ts`) implementing `EnvConfig`
-2. One `deployEnvironment(app, qaConfig)` call in `bin/weather-app.ts`
-
-Staging/prod may introduce a NAT Gateway, higher instance types, and a manual approval stage in the pipeline — all configurable via `EnvConfig` fields.
+| Framework | Next.js | 16.1.6 | App Router, React Server Components |
+| UI | React | 19.2.3 | Latest stable |
+| Language | TypeScript | 5 | Strict mode |
+| Styling | Tailwind CSS | 4 | JIT compiler |
+| State | Zustand | 5 | Client-side unit/theme state |
+| Maps | MapLibre GL | 4.0.0 | Open-source, no API key |
+| Map tiles | OpenFreeMap | — | Keyless, free |
+| Animation | Motion | 12 | Framer Motion fork |
+| Weather API | OpenWeather | 2.5 | Free tier |
+| UV Index | Open-Meteo | — | Free, no key |
 
 ---
 
-## 4. Environment Strategy
+## 4. Multi-Environment Architecture
 
-| Environment | Branch | Purpose | Instance | Status |
+### Environment Matrix
+
+| Attribute | DEV | QA | STAGING | PROD |
 |---|---|---|---|---|
-| **dev** | `dev` | Active development + CI/CD validation | t2.micro (free) | **Implemented (Week 2)** |
-| **qa** | `qa` | QA / automated testing | t2.micro (free) | Designed — deploy Week 3+ |
-| **staging** | `staging` | Pre-prod validation | t3.small | Designed — deploy Week 3+ |
-| **prod** | `main` | Live production | t3.small | Designed — deploy Week 4 |
+| **Branch** | `dev` | `qa` | `staging` | `main` |
+| **VPC CIDR** | 10.0.0.0/16 | 10.1.0.0/16 | 10.2.0.0/16 | 10.3.0.0/16 |
+| **Instance** | t2.micro | t2.micro | t2.micro | t2.micro* |
+| **AZs** | 1 | 1 | 1 | 1* |
+| **Inbound** | Your IP/32 | Your IP/32 | Your IP/32 | 0.0.0.0/0 |
+| **Deploy gate** | Auto | Auto | Manual approval | Manual approval |
+| **Log retention** | 7 days | 7 days | 14 days | 30 days |
+| **ECR images** | 3 | 3 | 5 | 10 |
+| **SSM path** | /weather-app/dev/... | /weather-app/qa/... | /weather-app/staging/... | /weather-app/prod/... |
+| **Monthly cost** | $0 | $0 | $0 | $0 |
 
-Each environment gets **fully isolated** AWS resources (separate VPC, ECR repo, EC2, pipeline, SSM namespace) via the CDK `EnvConfig` pattern.
+*Upgrade to t3.small + 2 AZ when leaving free tier.
+
+### Promotion Flow
+
+```
+Developer writes code
+        │
+        ▼
+  feature/Week-X branch
+        │  local test: docker compose up --build
+        ▼
+  main branch (merge Week-X)
+        │
+        ▼
+  dev branch ──────────────► DEV  (auto-deploy, IP-restricted)
+        │  smoke test passes
+        ▼
+  qa branch ───────────────► QA   (auto-deploy, IP-restricted)
+        │  QA sign-off
+        ▼
+  staging branch ──────────► STAGING  (manual approval email → deploy)
+        │  stakeholder approval
+        ▼
+  main branch ─────────────► PROD     (manual approval email → deploy)
+```
 
 ---
 
-## 5. Container Strategy
+## 5. AWS Infrastructure (per Environment)
+
+### 5.1 Five CDK Stacks
+
+```
+weather-app-<env>-vpc        VPC + public subnet + IGW + S3 Gateway Endpoint (free)
+weather-app-<env>-security   SG (IP-restricted HTTP only) + IAM role (least-privilege)
+weather-app-<env>-ecr        ECR repo + scan-on-push + lifecycle rules
+weather-app-<env>-ec2        t2.micro AL2023 + Elastic IP + Docker + deploy.sh
+weather-app-<env>-pipeline   CodePipeline + CodeBuild + SNS approval (staging/prod)
+```
+
+### 5.2 Network (VPC Stack)
+
+```
+VPC 10.x.0.0/16
+  └── Public Subnet /24 (AZ-a)
+        ├── Internet Gateway (outbound + inbound, free)
+        ├── S3 Gateway Endpoint (free — ECR layer pulls via AWS backbone)
+        └── EC2 t2.micro
+              └── Elastic IP (stable public URL, free when attached)
+```
+
+**Why no NAT Gateway?** Costs $32/month. EC2 in public subnet + IGW is functionally equivalent for a single-instance deployment.
+
+**S3 Gateway Endpoint (free):** ECR stores Docker image layers in S3. Without the endpoint, each layer pull goes through the EC2's public IP. With it, traffic stays on the AWS backbone — ~40% faster Docker pulls and zero data-transfer charges.
+
+### 5.3 Security (Security Stack)
+
+| Control | Implementation |
+|---|---|
+| Inbound HTTP | Port 80 from `allowedIp` only (your /32 in dev/qa/staging, 0.0.0.0/0 in prod) |
+| SSH | Port 22 CLOSED — shell access via SSM Session Manager only |
+| EC2 IAM | ECR pull + SSM GetParameter (1 param) + CW Logs + SSM Core |
+| Secrets | KMS SecureString in SSM Parameter Store |
+| EBS volume | gp3, AES-256 encrypted, delete-on-termination |
+| EC2 metadata | IMDSv2 required — protects against SSRF on metadata service |
+
+### 5.4 Container Runtime (EC2 Stack + Construct)
+
+```
+EC2 (Amazon Linux 2023)
+  └── Docker daemon
+        └── weather-app container
+              ├── Image: ECR weather-app-<env>:latest
+              ├── Port mapping: 80 → 3000
+              ├── OPENWEATHER_API_KEY: from SSM at deploy time
+              ├── Restart policy: unless-stopped
+              └── Logs: awslogs → CloudWatch /weather-app/<env>/app
+```
+
+View container logs from anywhere (no SSH):
+```bash
+aws logs tail /weather-app/dev/app --follow --region ap-south-1
+```
+
+### 5.5 CI/CD Pipeline (Pipeline Stack)
+
+```
+git push origin <branch>
+        │  GitHub webhook (CodeConnections)
+        ▼
+CodePipeline
+  ├─ SOURCE: pull code from GitHub branch
+  │
+  ├─ APPROVE (staging/prod only):
+  │    SNS email → human approves in AWS Console
+  │
+  └─ BUILD (CodeBuild SMALL):
+       pre_build:  ECR login, extract 7-char commit SHA as IMAGE_TAG
+       build:      docker build --cache-from :latest  (60% faster on hit)
+                   docker tag :IMAGE_TAG + :latest
+       post_build: docker push both tags
+                   aws ssm send-command → EC2 /opt/deploy.sh
+                   poll ssm get-command-invocation (30×15s = 7.5min max)
+                   print deploy result table
+```
+
+**Bug fixes applied to pipeline (Week 2 → v2):**
+1. `restartExecutionOnUpdate: false` — was `true`, caused every `cdk deploy` to trigger an app deploy
+2. `--cache-from :latest` — Docker layer cache; was missing, causing full rebuilds every run
+3. Removed unused `ListCommandInvocations` IAM action
+4. SSM poll now waits 7.5 min (was 5 min), handles Cancelled status explicitly
+5. Added `|| true` on `docker pull :latest` for cache — first deploy has no prior image
+
+---
+
+## 6. Container Image
 
 ### Multi-Stage Dockerfile
 
 ```
-Stage 1: deps    (node:20-alpine)
-  └── npm install
-      └── Output: /app/node_modules
+Stage 1: deps    (public.ecr.aws/docker/library/node:20-alpine)
+  └── npm install → /app/node_modules
 
-Stage 2: builder (node:20-alpine)
-  ├── COPY --from=deps node_modules
-  ├── COPY source
-  ├── next build (standalone output)
-  └── Output: .next/standalone, .next/static, public/
+Stage 2: builder (public.ecr.aws/docker/library/node:20-alpine)
+  ├── COPY node_modules from deps
+  ├── COPY weather-app/ source
+  └── npm run build → .next/standalone (self-contained server.js)
 
-Stage 3: runner  (node:20-alpine)  ← FINAL IMAGE
-  ├── COPY --from=builder standalone/
-  ├── Non-root user: nextjs (uid 1001)
-  ├── HEALTHCHECK via wget (Alpine default)
-  ├── Port 3000
-  └── CMD: node server.js
+Stage 3: runner  (public.ecr.aws/docker/library/node:20-alpine)  ← FINAL
+  ├── Non-root: nextjs uid 1001, nodejs gid 1001
+  ├── COPY only .next/standalone, .next/static, public/
+  ├── EXPOSE 3000
+  ├── HEALTHCHECK: wget / (30s, 5s timeout, 15s start, 3 retries)
+  └── CMD: ["node", "server.js"]
+
+Final image: ~150 MB
 ```
 
-### Image Size Targets
+**Why ECR public mirror?** Docker Hub rate-limits CodeBuild (429 Too Many Requests). `public.ecr.aws/docker/library/node:20-alpine` is the official AWS mirror — no rate limits, lower latency from ap-south-1.
 
-| Stage | Target | Max |
+---
+
+## 7. Observability
+
+### Currently Available (Week 2)
+
+| Signal | Where | How to Access |
 |---|---|---|
-| `deps` | < 400 MB | 600 MB |
-| `builder` | < 800 MB | 1.2 GB |
-| `runner` (final) | < 180 MB | 250 MB |
+| Container stdout/stderr | CloudWatch `/weather-app/<env>/app` | `aws logs tail <group> --follow` |
+| Build logs | CloudWatch `/aws/codebuild/weather-app-<env>-build` | CodeBuild console |
+| Deploy status | SSM Run Command history | SSM console → Run Command |
+| Pipeline status | CodePipeline console | AWS Console |
 
-### Why Alpine?
+### Planned Week 3
 
-| Metric | Debian-slim | Alpine |
+| Signal | Tool | Threshold |
 |---|---|---|
-| Base image | ~180 MB | ~7 MB |
-| Final image | ~400 MB | ~150 MB |
-| CVE surface | High | Low |
-
-### Why standalone output?
-
-`output: 'standalone'` produces a self-contained `server.js` with no `node_modules` needed in the runner — cuts final image by ~60%.
+| EC2 CPU | CloudWatch Alarm | > 80% for 5 min → SNS alert |
+| CodeBuild failure | CloudWatch Alarm | any failure → SNS alert |
+| App 5xx errors | CW Logs metric filter | > 5/min → alarm |
+| App response time | CW Logs metric filter | > 2s p99 → alarm |
 
 ---
 
-## 6. CI/CD Pipeline Design
+## 8. Secrets Management
 
 ```
-GitHub Push (to `dev` branch)
-    │
-    ▼
-CodePipeline (weather-app-dev-pipeline)
-    │
-    ├── Stage 1: SOURCE
-    │   └── GitHub CodeStar connection → artifact
-    │
-    └── Stage 2: BUILD (CodeBuild SMALL — free tier)
-        ├── docker build -t <repo>:<commit> -t <repo>:latest
-        ├── ECR login + push :commit + :latest
-        └── aws ssm send-command → EC2 /opt/deploy.sh
-                                      ├── ECR pull :latest
-                                      ├── SSM get OPENWEATHER_API_KEY
-                                      └── docker run (restart container)
+Developer (one-time, per environment)
+        │
+        ▼  ./scripts/seed-ssm.sh <env> <api-key>
+        │
+  SSM Parameter Store
+  /weather-app/<env>/OPENWEATHER_API_KEY
+  Type: SecureString (KMS encrypted)
+        │
+        ▼  At container start: aws ssm get-parameter --with-decryption
+        │
+  docker run -e OPENWEATHER_API_KEY="$KEY"
+        │
+        ▼
+  Next.js Server Action: process.env.OPENWEATHER_API_KEY
+  (server-side only, never in NEXT_PUBLIC_* or client bundle)
 ```
 
-**No separate Deploy stage** — the build stage handles both push and SSM-driven deploy. For staging/prod an explicit `ManualApprovalAction` stage will be inserted (hook is commented in `pipeline-stack.ts`).
+The API key is **never** in: git history, Dockerfile, Docker image layers, CloudFormation templates, CodeBuild logs, or client-side JavaScript.
 
 ---
 
-## 7. Infrastructure as Code Strategy
+## 9. IAM Least-Privilege Summary
 
-All AWS resources are managed via **AWS CDK TypeScript** (`infra/cdk/`). CDK synthesises CloudFormation templates — zero raw YAML maintained by hand.
-
-### CDK Project Structure
-
-```
-infra/cdk/
-├── bin/
-│   └── weather-app.ts            ← App entry: wires all stacks per env
-├── config/
-│   ├── env-config.ts             ← EnvConfig interface (the multi-env contract)
-│   └── dev.ts                    ← DEV values (only env deployed in Week 2)
-├── lib/
-│   ├── constructs/
-│   │   └── docker-ec2-construct.ts   ← Reusable EC2+Docker+EIP+UserData
-│   └── stacks/
-│       ├── vpc-stack.ts          ← VPC + public subnet + IGW
-│       ├── security-stack.ts     ← Security group + EC2 IAM role
-│       ├── ecr-stack.ts          ← ECR repo + lifecycle rules
-│       ├── ec2-stack.ts          ← t2.micro instance + ECR pull grant
-│       └── pipeline-stack.ts     ← CodePipeline + CodeBuild + S3 artifacts
-└── scripts/
-    └── seed-ssm.sh               ← One-time secret seeding (out-of-band)
-```
-
-### Stack Dependency Order (CDK resolves automatically)
-
-```
-vpc-stack
-  └─► security-stack (needs vpc)
-  └─► ec2-stack      (needs vpc + security + ecr)
-        └─► pipeline-stack (needs ecr + instance id)
-ecr-stack (independent)
-```
-
-### Multi-Environment Readiness
-
-Adding QA/Staging/Prod later requires **zero changes to stack files**:
-
-```typescript
-// bin/weather-app.ts — just add one line per new environment:
-deployEnvironment(app, devConfig);     // Week 2 ✓
-deployEnvironment(app, qaConfig);      // Week 3
-deployEnvironment(app, stagingConfig); // Week 3
-deployEnvironment(app, prodConfig);    // Week 4
-```
-
-### Key Commands
-
-```bash
-cd infra/cdk && npm install
-
-# One-time per account:
-npx cdk bootstrap aws://<ACCOUNT>/us-east-1
-
-# One-time: create GitHub CodeStar connection in console, paste ARN into config/dev.ts
-# One-time: seed the API key into SSM:
-./scripts/seed-ssm.sh dev <OPENWEATHER_API_KEY>
-
-# Deploy:
-npx cdk deploy --all --require-approval never
-
-# Destroy (clean — no orphaned resources):
-npx cdk destroy --all --force
-```
-
----
-
-## 8. Security Architecture
-
-### Secrets Management
-
-| Environment | Service | Why |
+| Role | Actions | Resource Scope |
 |---|---|---|
-| dev, qa | SSM Parameter Store (SecureString) | Free, sufficient for non-prod |
-| staging, prod | AWS Secrets Manager | Automatic rotation, audit trail |
-
-The API key is **never** in code, git history, Docker image layers, or environment blocks — it lives only in SSM and is read at container-start time via the EC2 instance role.
-
-### IAM Least Privilege
-
-| Role | Permissions |
-|---|---|
-| `weather-app-dev-ec2-role` | ECR pull (scoped to dev repo), SSM GetParameter (scoped to one param ARN), KMS Decrypt via SSM, AmazonSSMManagedInstanceCore |
-| CodeBuild role (auto-generated) | ECR push/pull (scoped to dev repo), SSM SendCommand (scoped to one instance + AWS-RunShellScript doc), SSM GetCommandInvocation, CloudWatch logs |
-| CodePipeline role (auto-generated) | S3 artifact read/write, CodeBuild start, CodeStar connection use |
-
-### Container Security
-
-- Non-root user (`nextjs`, uid 1001) in all containers
-- No port 22 open — shell access via **SSM Session Manager** (no inbound firewall rule required)
-- No secrets in Docker image layers — all injected at container runtime
-- No client-side API keys: maps use keyless OpenFreeMap; OWM key stays server-side only
+| EC2 role | ECR GetAuthToken + BatchGetImage + GetDownloadURL | 1 repo ARN |
+| EC2 role | SSM GetParameter, GetParameters | 1 parameter ARN |
+| EC2 role | KMS Decrypt | * with condition: ViaService=ssm.region.amazonaws.com |
+| EC2 role | CW Logs: CreateLogGroup/Stream, PutLogEvents, DescribeLogStreams | /weather-app/<env>/app* |
+| EC2 role | AmazonSSMManagedInstanceCore | Managed policy |
+| CodeBuild role | ECR push/pull (6 actions) | 1 repo ARN |
+| CodeBuild role | SSM SendCommand | 1 instance ARN + AWS-RunShellScript doc ARN |
+| CodeBuild role | SSM GetCommandInvocation | * (unsupported resource restriction) |
 
 ---
 
-## 9. Cost Model
+## 10. Cost Model
 
-### DEV Environment — Monthly Estimate (AWS Free Tier)
+All environments run at **$0/month** on AWS Free Tier:
 
-| Service | Config | Monthly Cost |
+| Service | Free Tier Limit | Usage |
 |---|---|---|
-| EC2 t2.micro | 750 free hours/month | **$0** |
-| EBS gp3 8 GB | 30 GB free | **$0** |
-| Elastic IP | attached to running instance | **$0** |
-| VPC + IGW | no NAT Gateway | **$0** |
-| ECR | ≤ 3 images, < 500 MB free | **$0** |
-| CodePipeline | 1 pipeline (1 free/month) | **$0** |
-| CodeBuild SMALL | < 100 min/month free | **$0** |
-| SSM Param Store | standard parameters | **$0** |
-| CloudWatch Logs | < 5 GB free | **$0** |
-| **DEV Total** | | **$0/month** |
-
-Cost avoided by architectural choices:
-- **No ECS Fargate**: saves ~$15/mo per environment
-- **No ALB**: saves ~$16/mo per environment
-- **No NAT Gateway**: saves ~$32/mo per environment
+| EC2 t2.micro | 750 hrs/month (12 months) | 1 instance per env |
+| EBS gp3 8 GB | 30 GB/month | 8 GB per env |
+| Elastic IP | Free when attached | 1 per env |
+| ECR | 500 MB/month | < 200 MB per env (3 images × ~60 MB) |
+| CodePipeline | 1 active pipeline free | 1 per env |
+| CodeBuild SMALL | 100 min/month | ~5 min per deploy |
+| SSM Parameter Store | Standard tier free | 1 SecureString per env |
+| CloudWatch Logs | 5 GB free | < 100 MB/month |
+| S3 Gateway Endpoint | Always free | 1 per VPC |
 
 ---
 
-## 10. Branching & Promotion Strategy
+## 11. Architecture Decision Records (ADRs)
 
-See `docs/BRANCHING.md` for the full diagram and workflow.
-
-### Current Model (Week-Based Isolation)
-
-```
-main  (baseline — initial commit only until all weeks pass QA)
-  │
-  ├── Week-1  (Docker + Next.js app — pending merge after API key test)
-  │
-  └── Week-2  (CDK IaC, dev env only — pending merge after Week-1)
-```
-
-Each week branch is isolated from `main`. After the user tests and approves, the week branch merges to `main` and the next week's branch is cut from the updated `main`.
-
-### Future Promotion Flow (Weeks 3–4)
-
-```
-feature/* ──► dev ──► qa ──► staging ──► main
-                                ▲             ▲
-                          Manual           Manual
-                          Approval         Approval
-```
+| ADR | Decision | Rationale |
+|---|---|---|
+| 001 | EC2 t2.micro over ECS Fargate | Fargate = $15/mo min. t2.micro = free tier. |
+| 002 | No ALB in dev/qa | ALB = $16/mo. Direct Elastic IP is free. ALB added with HTTPS in Week 3 for staging/prod. |
+| 003 | CDK TypeScript over raw CFN | Compile-time type safety. Reusable constructs. No copy-paste between environments. |
+| 004 | Alpine base image | ~150 MB final vs ~600 MB Debian. Smaller CVE surface. |
+| 005 | Next.js standalone output | Removes node_modules from runner stage. 60% image size reduction. |
+| 006 | MapLibre GL + OpenFreeMap | No Mapbox account required. Identical API. No billing surprises. |
+| 007 | SSM Run Command for deploy | No CodeDeploy agent, no extra cost, auditable, idempotent. |
+| 008 | SSM Session Manager | Port 22 closed. Full audit trail in CloudTrail. No SSH key management. |
+| 009 | ECR public mirror for base image | Docker Hub rate-limits CodeBuild (429). ECR public has no limit, lower latency in Mumbai. |
+| 010 | awslogs Docker driver | Container logs in CloudWatch without SSH. Searchable with Insights. |
+| 011 | S3 Gateway VPC Endpoint | Free. Routes ECR pulls through AWS backbone. ~40% faster builds. |
+| 012 | CDK context var for env selection | `--context deploy-env=prod` selects environment. Prevents accidental prod deploys from `--all`. |
+| 013 | SNS manual approval for staging/prod | Email notification forces a human to review before deploying to sensitive environments. |
+| 014 | Polyrepo architecture | App and infra on separate review/deploy cycles. Independent access control. Industry standard. |
 
 ---
 
-## 11. Decisions Log (ADR)
+## 12. Week Roadmap
 
-### ADR-001: EC2 t2.micro over ECS Fargate
-
-**Decision:** Use a t2.micro EC2 instance instead of ECS Fargate for the dev environment.  
-**Rationale:** Fargate has no free tier — even 0.25 vCPU costs ~$9/mo. t2.micro gives 750 free hours/month. For a single-container dev environment with no HA requirement, EC2 is the cost-optimal choice.  
-**Tradeoff:** Manual scaling; no rolling deploy (container restarts via SSM instead). Staging/prod will use a higher-tier instance or revisit ECS.
-
-### ADR-002: No ALB in Dev
-
-**Decision:** EC2 Elastic IP exposed directly on port 80, no Application Load Balancer.  
-**Rationale:** ALB costs ~$16/mo regardless of traffic. For dev, a static EIP on port 80 achieves the same result at $0.  
-**Tradeoff:** No HTTPS/TLS in dev (HTTP only). Staging/prod will add an ALB with ACM cert.
-
-### ADR-003: CDK over raw CloudFormation
-
-**Decision:** All IaC is AWS CDK TypeScript. No hand-written CloudFormation YAML.  
-**Rationale:** Type safety catches errors at compile time (not after a 10-min CFN rollback). Reusable constructs (`DockerEc2Construct`) eliminate copy-paste YAML across environments. `EnvConfig` interface enforces the multi-env contract at the TypeScript level.  
-**Tradeoff:** CDK bootstrap stack required once per account/region. Slightly higher tool complexity vs raw CFN.
-
-### ADR-004: Alpine base image
-
-**Decision:** `node:20-alpine` for all Docker stages.  
-**Rationale:** ~150 MB final image vs ~400 MB Debian-slim. Smaller attack surface, faster ECR push/pull.  
-**Tradeoff:** Musl libc — some native Node modules need `libc6-compat` (already installed in deps stage).
-
-### ADR-005: Standalone Next.js output
-
-**Decision:** `output: 'standalone'` in `next.config.ts`.  
-**Rationale:** Removes `node_modules` from runner stage, cutting final image size by ~60%. `CMD node server.js` — no Next.js CLI needed in the container.  
-**Tradeoff:** `public/` and `.next/static` must be copied separately (handled in Dockerfile Stage 3).
-
-### ADR-006: MapLibre GL + OpenFreeMap (no Mapbox)
-
-**Decision:** Replace Mapbox GL JS with MapLibre GL and serve base tiles from OpenFreeMap.  
-**Rationale:** Mapbox requires a credit card and billing even on the free tier. MapLibre GL is an open-source drop-in fork with an identical API. OpenFreeMap is fully free and keyless — nothing to bake into the client bundle.  
-**Tradeoff:** OpenFreeMap style URLs differ from Mapbox — one-time migration, no ongoing cost.
-
-### ADR-007: SSM Run Command for EC2 Deploy (no CodeDeploy)
-
-**Decision:** CodeBuild post_build runs `aws ssm send-command` to invoke `/opt/deploy.sh` on the EC2 box.  
-**Rationale:** No CodeDeploy agent needed, no `appspec.yml`, no additional IAM setup. The deploy script (written by UserData at boot) is idempotent: pull `:latest`, stop old container, start new one. Simpler and free.  
-**Tradeoff:** No blue/green or rolling deploy — single container stops briefly during `docker rm`. Acceptable for dev; staging/prod can introduce CodeDeploy or ECS.
-
-### ADR-008: SSM Session Manager (no open port 22)
-
-**Decision:** Security group has no inbound port 22. Shell access is via SSM Session Manager.  
-**Rationale:** Open SSH is a common attack vector. Session Manager provides authenticated shell access through the AWS console/CLI with full audit logging, requiring zero inbound firewall rules.  
-**Tradeoff:** Requires SSM agent on the instance (pre-installed on Amazon Linux 2023).
+| Week | Deliverables | Status |
+|---|---|---|
+| 1 | Next.js app, MapLibre maps, Docker multi-stage, GitHub Actions CI | COMPLETE |
+| 2 | CDK 5-stack IaC, 4 envs parameterised, ap-south-1, IP restriction, CW logs, deployed | COMPLETE |
+| 3 | HTTPS/ALB (staging/prod), CloudWatch Alarms, security headers, structured logging, QA deploy | PLANNED |
+| 4 | Secrets Manager (prod), load test, on-call runbook, staging/prod deploy, Route53 domain | PLANNED |

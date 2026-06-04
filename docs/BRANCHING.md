@@ -1,159 +1,142 @@
 # Branching Strategy & Git Flow
 
-**Version:** 2.0  
-**Date:** 2026-05-28
+**Version:** 3.0
+**Date:** 2026-06-04
 
 ---
 
-## Core Model — Week-Based Isolation
+## Core Model
 
-Each week of the project lives on its own branch isolated from `main`. The user tests that week's deliverables, approves, and the branch merges to `main`. The next week's branch is then cut from the updated `main`. This gives clean, reviewable history and prevents weeks from interfering with each other.
+Two parallel models run side-by-side in this polyrepo:
+
+| Repo | Model | Why |
+|---|---|---|
+| Weather-App (app code) | Permanent environment branches | Pipeline watches each branch 24/7 |
+| Weather-App-IAC (infra) | Week-based isolation branches | Infra changes are infrequent, need review |
+
+---
+
+## Weather-App Branch Model
 
 ```
-main  (clean baseline — only merged, tested weeks)
+main        ← Clean, tested code only. Pipeline watches this for PROD.
   │
-  ├── Week-1   (Docker + Next.js app)
-  ├── Week-2   (AWS CDK IaC — dev environment)
-  ├── Week-3   (planned — monitoring, HTTPS, QA env)
-  └── Week-4   (planned — staging/prod, full pipeline)
+  ├── Week-X    ← Feature work. Temporary. Deleted after merge to main.
+  │
+  ├── dev       ← PERMANENT. Pipeline auto-deploys to DEV on every push.
+  ├── qa        ← PERMANENT. Pipeline auto-deploys to QA on every push.
+  ├── staging   ← PERMANENT. Pipeline deploys with manual approval.
+  └── (main)    ← PERMANENT. Pipeline deploys PROD with manual approval.
 ```
 
-### Week Branch Lifecycle
+### Developer Workflow
 
 ```
-1. Cut branch from main (after previous week is merged)
-2. Build the week's deliverables
-3. Test locally / validate
-4. User approves: "merge"
-5. Merge to main via fast-forward (no open PR needed for solo work)
-6. Delete the week branch remotely (optional — keeps remote clean)
-7. Repeat
+1. git checkout main && git pull origin main
+2. git checkout -b Week-3-my-feature
+3. Write code, test locally: docker compose up --build
+4. git add . && git commit -m "feat(weather): my feature"
+5. git push origin Week-3-my-feature
+6. git checkout main && git merge Week-3-my-feature
+7. git push origin main
+8. git branch -d Week-3-my-feature          (delete locally)
+9. git push origin --delete Week-3-my-feature (delete remotely)
+
+→ To deploy: git checkout dev && git merge main && git push origin dev
+→ Pipeline triggers automatically, app live in ~5 minutes
+```
+
+### Environment Branch Rules
+
+| Branch | Who pushes | Deploy trigger | Gate | Delete? |
+|---|---|---|---|---|
+| `main` | Anyone (after review) | PROD pipeline | SNS manual approval | Never |
+| `staging` | `git merge main` | STAGING pipeline | SNS manual approval | Never |
+| `qa` | `git merge dev` | QA pipeline | Auto | Never |
+| `dev` | `git merge main` | DEV pipeline | Auto | Never |
+| `Week-X` | Developer | None | None | After merge to main |
+
+### Why Not Push Directly to dev/qa/staging/main?
+
+Direct pushes cause messy history. The correct flow:
+```
+Work happens on Week-X → merge to main (clean) → cherry-pick to dev/qa for deploy
+```
+
+This keeps `main` as a clean snapshot of every release, and `dev`/`qa`/`staging` as deployment triggers that always mirror `main`.
+
+---
+
+## Weather-App-IAC Branch Model
+
+```
+main        ← Clean, deployed infrastructure baseline
+  │
+  ├── Week-2   ← Current CDK work. Merged to main when deployed and tested.
+  └── Week-3   ← Planned. Monitoring, HTTPS, QA deploy.
+```
+
+### Infrastructure Deploy Workflow
+
+```
+1. git checkout main && git pull origin main
+2. git checkout -b Week-3-monitoring
+3. Write CDK code
+4. npx tsc --noEmit         ← compile check
+5. npx cdk synth            ← validate CloudFormation output
+6. npx cdk diff             ← review what will change in AWS
+7. npx cdk deploy --all     ← deploy to dev
+8. Test the infra changes
+9. git checkout main && git merge Week-3-monitoring
+10. git push origin main
+11. git branch -d Week-3-monitoring
 ```
 
 ---
 
-## Current Branch State (2026-05-28)
+## Current Branch State (2026-06-04)
+
+### Weather-App
 
 | Branch | Base | Status | Contains |
 |---|---|---|---|
-| `main` | — | Baseline (initial commit) | README, .gitignore |
-| `Week-1` | main | **Pending merge** (awaiting final API test) | Docker, Next.js app, MapLibre, OWM free-tier |
-| `Week-2` | main | **Pushed, pending Week-1 merge** | CDK TypeScript IaC (dev env only) |
+| `main` | — | Clean baseline | Week-1 merged (app + Docker) |
+| `Week-1` | main | Merged → delete | Docker + Next.js app |
+| `dev` | main | Active | CI/CD trigger for DEV env |
 
-**Merge order:** `Week-1` → `main` first, then `Week-2` → `main`. When both are on `main`, the pipeline (CDK) can build the app (Dockerfile).
+**Next steps:** Create `qa`, `staging` branches when those environments are deployed (Week 3).
 
----
+### Weather-App-IAC
 
-## Merge Command (when user approves)
+| Branch | Base | Status | Contains |
+|---|---|---|---|
+| `main` | — | Baseline | README, .gitignore |
+| `Week-2` | main | Active, pending merge | 5 CDK stacks, 4 env configs, all fixes |
 
-```bash
-# Merge Week-1 to main
+**Merge when ready:**
+```powershell
+cd "c:\project\Weather-App-IAC"
 git checkout main
-git merge --no-ff Week-1 -m "merge: Week-1 — Docker + Next.js app"
+git merge --no-ff Week-2 -m "merge: Week-2 — CDK IaC, 4 environments, ap-south-1"
 git push origin main
-
-# Then merge Week-2
-git merge --no-ff Week-2 -m "merge: Week-2 — CDK IaC dev environment"
-git push origin main
+git branch -d Week-2
+git push origin --delete Week-2
 ```
 
 ---
 
-## Future Environment Branch Map (Weeks 3–4)
-
-Once QA/staging/prod environments are built (Weeks 3–4), the branch-to-environment mapping will be:
+## Future Environment Branch Map (Week 3–4)
 
 ```
-BRANCH          ENVIRONMENT     AUTO-DEPLOY     APPROVAL GATE
-─────────────── ─────────────── ─────────────── ──────────────
-feature/*       (local only)    No              No
-dev             DEV             Yes             No
-qa              QA              Yes             No
-staging         STAGING         No              Yes (manual)
-main            PRODUCTION      No              Yes (manual)
-hotfix/*        (local only)    No              No
+BRANCH       ENVIRONMENT   AUTO-DEPLOY   APPROVAL GATE
+──────────   ───────────   ───────────   ─────────────
+feature/*    (local only)  No            No
+dev          DEV           Yes           No
+qa           QA            Yes           No
+staging      STAGING       No            Yes (SNS email)
+main         PROD          No            Yes (SNS email)
+hotfix/*     (local only)  No            No
 ```
-
-### Future Promotion Flow
-
-```
-  DEVELOPER                GIT BRANCHES                   AWS ENVIRONMENTS
-  ─────────                ────────────                   ────────────────
-
-  $ git checkout           feature/add-wind-card
-    -b feature/...               │
-                                 │  PR review
-                                 ▼
-                            dev branch  ──────────────►  DEV  (auto-deploy)
-                                 │
-                                 │  PR + integration tests
-                                 ▼
-                             qa branch  ──────────────►  QA   (auto-deploy)
-                                 │
-                                 │  PR + QA sign-off
-                                 ▼
-                          staging branch  ─────────►  STAGING (manual approval)
-                                 │
-                                 │  PR + stakeholder approval
-                                 ▼
-                            main branch  ─────────►  PRODUCTION (manual approval)
-```
-
----
-
-## Branch Protection Rules (apply when team expands)
-
-### `main`
-- Require PR with ≥ 1 reviewer (solo: ≥ 0 for solo work)
-- Require all CI checks to pass (GitHub Actions: lint + typecheck + Docker build)
-- No direct push
-- Linear history enforced
-
-### `Week-N` branches
-- No restrictions during active development week
-- Delete after successful merge to `main`
-
-### `staging` / `prod` (future)
-- Require PR with ≥ 1 reviewer
-- Require CI + Trivy scan to pass
-- Require CDK pipeline manual approval (SNS email gate)
-- No direct push
-
----
-
-## CDK Stack Isolation per Environment
-
-Each environment deploys 5 fully independent CDK stacks:
-
-```
-DEV (weather-app-dev-*)
-  weather-app-dev-vpc        VPC 10.0.0.0/16, 1 AZ, public only
-  weather-app-dev-security   EC2 SG + IAM role
-  weather-app-dev-ecr        ECR repo, max 3 images
-  weather-app-dev-ec2        t2.micro, Elastic IP
-  weather-app-dev-pipeline   CodePipeline + CodeBuild (branch: dev)
-  /weather-app/dev/*         SSM SecureString for OWM key
-
-QA (weather-app-qa-*)        [designed, not yet deployed]
-  Same 5 stacks, different VPC CIDR + branch + SSM namespace
-
-STAGING (weather-app-staging-*)  [designed, not yet deployed]
-  Same 5 stacks + NAT Gateway + manual approval gate
-
-PROD (weather-app-prod-*)    [designed, not yet deployed]
-  Same 5 stacks + 2 AZ + higher instance type + Secrets Manager
-```
-
----
-
-## Rollback Strategy
-
-| Scenario | Action |
-|---|---|
-| Bad container deploy | SSH via SSM Session Manager → `docker pull <repo>:previous-tag && docker rm -f weather-app && docker run ...` |
-| Bad pipeline run | CodePipeline → disable transition, push a revert commit to trigger clean redeploy |
-| Infrastructure broken | `npx cdk deploy --all` from last known-good IaC commit |
-| Nuclear option | `npx cdk destroy --all --force` + re-deploy from scratch (< 15 min) |
 
 ---
 
@@ -168,39 +151,36 @@ Examples:
   feat(weather): add 10-day forecast card
   fix(api): handle missing OpenWeather API key gracefully
   infra(cdk): add QA environment config
-  ci(pipeline): insert manual approval gate for staging
-  docs(hld): update architecture for Week 2 EC2 deployment
+  ci(pipeline): add manual approval gate for staging
+  docs(hld): update architecture for Week 3 monitoring
+  fix(docker): use ECR public mirror to avoid Docker Hub rate limits
 ```
 
 ---
 
-## Hotfix Flow (future)
+## Rollback Strategy
 
-```
-  PRODUCTION BUG DETECTED
-         │
-         ▼
-  $ git checkout -b hotfix/fix-api-crash main
-         │  Fix committed + reviewed
-         ▼
-  hotfix/* ──► staging (expedited approval) ──► main (production)
-         │
-         │  Back-merge (mandatory — all lower envs get the fix)
-         ▼
-  hotfix/* ──► staging ──► qa ──► dev
-```
+| Scenario | Action |
+|---|---|
+| Bad container deploy | SSM Session Manager → `docker pull <repo>:<prev-tag> && bash /opt/deploy.sh` |
+| Bad pipeline run | CodePipeline console → disable transition; push revert commit |
+| Infrastructure broken | `npx cdk deploy --all --context deploy-env=<env>` from last good IaC commit |
+| Nuclear option | `npx cdk destroy --all --force && npx cdk deploy --all --context deploy-env=<env>` (< 20 min) |
 
 ---
 
-## Naming Conventions
+## Branch Protection (Apply When Team Expands)
 
-```
-Week-N                         weekly deliverable branch
-  e.g.  Week-1, Week-2
+### `main` (both repos)
+- Require PR with ≥ 1 reviewer
+- All CI checks must pass
+- No direct push
 
-feature/<ticket>-<description> future feature branches (off dev)
-  e.g.  feature/WEA-42-add-wind-card
+### `staging` / `main` in Weather-App
+- Require PR + QA sign-off
+- CI + Trivy scan required
+- SNS approval gate in pipeline (already implemented)
 
-hotfix/<ticket>-<description>  emergency fixes (off main)
-  e.g.  hotfix/WEA-99-fix-api-key-null
-```
+### `Week-X` branches
+- No restrictions during active development
+- Delete after successful merge to `main`
