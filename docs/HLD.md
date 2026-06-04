@@ -18,7 +18,189 @@ A production-grade weather dashboard built on Next.js 16 and deployed to AWS via
 
 ---
 
-## 2. Repository Architecture (Polyrepo)
+## 2. Architecture Diagrams
+
+### 2.1 Full System — CI/CD Flow
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  DEVELOPER MACHINE                                                          │
+│                                                                             │
+│  $ git push origin dev                                                      │
+└────────────────────────────┬────────────────────────────────────────────────┘
+                             │ push
+                             ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  GITHUB (Weather-App repo)                                                  │
+│                                                                             │
+│  ┌─────────────┐   webhook    ┌──────────────────────────────────────────┐  │
+│  │  dev branch │─────────────►│  GitHub Actions CI                       │  │
+│  └─────────────┘              │  ✔ npm lint                              │  │
+│                               │  ✔ tsc --noEmit                          │  │
+│                               │  ✔ docker build (validate only)          │  │
+│                               └──────────────────────────────────────────┘  │
+│                                              │ webhook (CodeConnections ARN) │
+└──────────────────────────────────────────────┼──────────────────────────────┘
+                                               │
+                                               ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  AWS — ap-south-1 (Mumbai)                                                  │
+│                                                                             │
+│  ┌───────────────────────────────────────────────────────────────────────┐  │
+│  │  CodePipeline: weather-app-dev-pipeline                               │  │
+│  │                                                                       │  │
+│  │  [SOURCE] ──► [APPROVE*] ──► [BUILD]                                  │  │
+│  │     │           (staging/         │                                   │  │
+│  │     │            prod only)       │                                   │  │
+│  │  Pull code                   CodeBuild SMALL                          │  │
+│  │  from GitHub                 1. docker pull :latest (cache)           │  │
+│  │                              2. docker build --cache-from             │  │
+│  │                              3. docker push → ECR :sha + :latest      │  │
+│  │                              4. aws ssm send-command → EC2            │  │
+│  └──────────────────────────────────────┬──────────────────────────────┘   │
+│                                         │                                   │
+│  ┌─────────────────────────────────────┐│  ┌─────────────────────────────┐  │
+│  │  SSM Parameter Store                ││  │  ECR: weather-app-dev       │  │
+│  │  /weather-app/dev/                  ││  │  :abc1234 (commit SHA)      │  │
+│  │    OPENWEATHER_API_KEY (SecureString)││  │  :latest                   │  │
+│  └─────────────────────┬───────────────┘│  └──────────────┬──────────────┘  │
+│                        │ get-parameter  │                  │ docker pull     │
+│  ┌─────────────────────▼───────────────▼──────────────────▼──────────────┐  │
+│  │  VPC: 10.0.0.0/16                                                     │  │
+│  │  ┌─────────────────────────────────────────────────────────────────┐  │  │
+│  │  │  Public Subnet ap-south-1a                                      │  │  │
+│  │  │                                                                 │  │  │
+│  │  │  ┌───────────────────────────────────────────────────────────┐  │  │  │
+│  │  │  │  EC2 t2.micro (Amazon Linux 2023)                         │  │  │  │
+│  │  │  │  Elastic IP: 3.7.117.9                                    │  │  │  │
+│  │  │  │                                                           │  │  │  │
+│  │  │  │  ┌─────────────────────────────────────────────────────┐  │  │  │  │
+│  │  │  │  │  Docker: weather-app container                      │  │  │  │  │
+│  │  │  │  │  Port: 80 → 3000                                    │  │  │  │  │
+│  │  │  │  │  ENV: OPENWEATHER_API_KEY (from SSM)                │  │  │  │  │
+│  │  │  │  │  Logs: → CloudWatch /weather-app/dev/app            │  │  │  │  │
+│  │  │  │  └─────────────────────────────────────────────────────┘  │  │  │  │
+│  │  │  └───────────────────────────────────────────────────────────┘  │  │  │
+│  │  │                                                                 │  │  │
+│  │  │  Security Group: port 80 from 122.183.51.230/32 only           │  │  │
+│  │  │  S3 Gateway Endpoint (ECR layer pulls via AWS backbone)         │  │  │
+│  │  └─────────────────────────────────────────────────────────────────┘  │  │
+│  └───────────────────────────────────────────────────────────────────────┘  │
+│                                                                             │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │  CloudWatch Logs: /weather-app/dev/app  (container stdout/stderr)   │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                             │ HTTP port 80
+                             ▼
+                    ┌─────────────────┐
+                    │  Your Browser   │
+                    │  http://3.7.117.9│
+                    └─────────────────┘
+
+* APPROVE stage exists only for staging and prod environments
+```
+
+---
+
+### 2.2 Multi-Environment Architecture
+
+```
+                    ┌──────────────────────────────────────────┐
+                    │         AWS Account: 911167912708         │
+                    │         Region: ap-south-1 (Mumbai)       │
+                    └──────────────────────────────────────────┘
+
+  DEV (auto-deploy)          QA (auto-deploy)
+  ┌─────────────────┐        ┌─────────────────┐
+  │ VPC 10.0.0.0/16 │        │ VPC 10.1.0.0/16 │
+  │ EC2 t2.micro    │        │ EC2 t2.micro    │
+  │ ECR dev repo    │        │ ECR qa repo     │
+  │ Pipeline: dev   │        │ Pipeline: qa    │
+  │ IP: your/32     │        │ IP: your/32     │
+  └────────┬────────┘        └────────┬────────┘
+           │ push to dev              │ push to qa
+           │                         │
+
+  STAGING (manual approval)   PROD (manual approval)
+  ┌─────────────────┐        ┌─────────────────┐
+  │ VPC 10.2.0.0/16 │        │ VPC 10.3.0.0/16 │
+  │ EC2 t2.micro    │        │ EC2 t2.micro    │
+  │ ECR staging repo│        │ ECR prod repo   │
+  │ Pipeline:staging│        │ Pipeline: main  │
+  │ IP: your/32     │        │ IP: 0.0.0.0/0   │
+  │ 📧 Email gate   │        │ 📧 Email gate   │
+  └────────┬────────┘        └────────┬────────┘
+           │ push to staging          │ push to main
+           │ + click approve          │ + click approve
+```
+
+---
+
+### 2.3 Secrets Flow
+
+```
+Developer
+  │
+  ▼
+./scripts/seed-ssm.sh dev <KEY>
+  │
+  ▼
+SSM Parameter Store (SecureString, KMS encrypted)
+/weather-app/dev/OPENWEATHER_API_KEY
+  │
+  ▼  (at deploy time, EC2 instance role reads it)
+aws ssm get-parameter --with-decryption
+  │
+  ▼
+docker run -e OPENWEATHER_API_KEY="$KEY"
+  │
+  ▼
+Next.js Server Action: process.env.OPENWEATHER_API_KEY
+  │
+  ▼
+OpenWeather API call (server-side only, never sent to browser)
+```
+
+---
+
+### 2.4 Docker Image Stages
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Stage 1: deps  (node:20-alpine)                                │
+│  ─────────────────────────────                                  │
+│  COPY package.json package-lock.json                            │
+│  RUN npm install                                                │
+│  Output: node_modules/ (~200 MB)                                │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ COPY --from=deps
+┌───────────────────────────▼─────────────────────────────────────┐
+│  Stage 2: builder  (node:20-alpine)                             │
+│  ─────────────────────────────────                              │
+│  COPY node_modules/                                             │
+│  COPY weather-app/ (source code)                                │
+│  RUN npm run build                                              │
+│  Output: .next/standalone/ (self-contained server.js)           │
+└───────────────────────────┬─────────────────────────────────────┘
+                            │ COPY only built artifacts
+┌───────────────────────────▼─────────────────────────────────────┐
+│  Stage 3: runner  (node:20-alpine)  ← FINAL IMAGE (~150 MB)    │
+│  ─────────────────────────────────                              │
+│  User: nextjs (uid 1001) — non-root                             │
+│  COPY .next/standalone, .next/static, public/                   │
+│  EXPOSE 3000                                                    │
+│  HEALTHCHECK: wget http://localhost:3000 every 30s              │
+│  CMD ["node", "server.js"]                                      │
+│                                                                 │
+│  No node_modules. No build tools. No source code.              │
+│  Only the compiled output needed to run the app.                │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 3. Repository Architecture (Polyrepo)
 
 ```
 GitHub: ViyajithSamrat
