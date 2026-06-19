@@ -1,7 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { OWMGeocodingResult } from "@/types/openweather";
+import {
+  rateLimit,
+  clientIp,
+  rateLimitHeaders,
+  RATE_LIMITS,
+} from "@/lib/rate-limit";
 
 export async function GET(request: NextRequest) {
+  // Rate-limit before any work or upstream call (abuse / quota-exhaustion guard)
+  const rl = rateLimit(
+    `geocode:${clientIp(request)}`,
+    RATE_LIMITS.geocode.limit,
+    RATE_LIMITS.geocode.windowMs,
+  );
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: rateLimitHeaders(rl) },
+    );
+  }
+
   const q = request.nextUrl.searchParams.get("q")?.trim();
 
   if (!q || q.length < 3) {
