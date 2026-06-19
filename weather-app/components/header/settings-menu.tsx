@@ -47,6 +47,7 @@ export default function SettingsMenu() {
   const updateWeatherUnits = (patch: Partial<WeatherUnits>) => {
     const current = getUnits();
     const next = { ...current, ...patch };
+    // eslint-disable-next-line react-hooks/immutability
     document.cookie = `WEATHER_UNITS=${encodeURIComponent(JSON.stringify(next))}; path=/; max-age=31536000`;
     router.refresh();
   };

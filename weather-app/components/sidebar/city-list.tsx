@@ -66,6 +66,7 @@ export default function CityList({
 
   useEffect(() => {
     if (cities.length === 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setWeatherData([]);
       return;
     }

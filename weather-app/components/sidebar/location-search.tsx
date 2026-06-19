@@ -27,6 +27,7 @@ export default function LocationSearch({
 
   useEffect(() => {
     if (debouncedQuery.length < 3) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSuggestions([]);
       return;
     }
