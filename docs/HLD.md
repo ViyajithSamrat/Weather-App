@@ -1,9 +1,15 @@
 # High-Level Design — Enterprise Weather Application DevOps Platform
 
-**Version:** 4.0
-**Date:** 2026-06-19
-**Status:** Active — Dev deployed, Production gate operational
+**Version:** 5.0
+**Date:** 2026-06-20
+**Status:** Active — Dev deployed; Production Gate operational & enforced (PR #4 merged to `main`); PROD infra not yet deployed (pending `cdk deploy --context deploy-env=prod`)
 **Strategy:** 2-environment model (dev + prod) per mentor direction
+
+**v5.0 changelog (security & reliability hardening):**
+- Deploy script now performs a **canary health check + automatic rollback** (was a bare stop/run); `set -x` removed to stop the API key leaking into SSM/CodeBuild logs.
+- PROD config AZ pinned to `ap-south-1b`; PROD ECR set to `MUTABLE` (IMMUTABLE + moving `:latest` broke the 2nd deploy).
+- App-layer security: removed `logging.fetches.fullUrl` (leaked the key to CloudWatch), added HTTP security headers, integer-validated map tile coords, added per-IP rate limiting on both proxy routes.
+- Dependencies patched: `next` 16.1.6 → 16.2.9 (HIGH advisories cleared).
 
 ---
 
@@ -172,7 +178,7 @@ ECR public mirror (no Docker Hub rate limits in ap-south-1 CodeBuild)
 
 | Layer | Technology | Version | Notes |
 |---|---|---|---|
-| Framework | Next.js | 16.1.6 | App Router, React Server Components |
+| Framework | Next.js | 16.2.9 | App Router, RSC — patched up from 16.1.6 (HIGH CVEs) |
 | UI | React | 19.2.3 | Latest stable |
 | Language | TypeScript | 5 | Strict mode |
 | Styling | Tailwind CSS | 4 | JIT compiler |
@@ -235,12 +241,19 @@ EC2 (Amazon Linux 2023, ap-south-1b)
           Restart: --restart unless-stopped
           Logs:    awslogs → CloudWatch /weather-app/<env>/app
 
-Deploy script (/opt/deploy.sh):
+Deploy script (/opt/deploy.sh) — canary + auto-rollback (v5.0):
   1. ECR login via instance role
   2. docker pull :latest
   3. Read OPENWEATHER_API_KEY from SSM at runtime
-  4. docker rm -f old container
-  5. docker run new container with -e flag injection
+  4. CANARY: run new image on throwaway port 3001, curl-health-check it.
+     If unhealthy → abort, live container untouched (zero-downtime safety).
+  5. SWAP: docker rm -f old container; docker run new on port 80 (-e injection)
+  6. POST-DEPLOY health check on port 80. If unhealthy → automatic ROLLBACK
+     to the previously-running image (captured before the swap).
+
+SECURITY: script runs `set -euo pipefail` (NO -x). With -x, the expanded
+`docker run -e OPENWEATHER_API_KEY=<value>` line would print the decrypted
+key into SSM Run Command output, which CodeBuild captures.
 ```
 
 ### 5.5 CI/CD Pipeline (Pipeline Stack)
@@ -269,6 +282,31 @@ Lifecycle rules:
 - dev: keep last 3 tagged images, expire untagged after 1 day
 - prod: keep last 10 tagged images (wider rollback window)
 
+**Tag mutability:** MUTABLE for **both** dev and prod. The pipeline pushes a
+moving `:latest` on every build and `deploy.sh` pulls `:latest`, so `:latest`
+must be overwritable. (A prior IMMUTABLE setting on prod broke the 2nd deploy —
+the 2nd `:latest` push was rejected.) Enterprise upgrade path: stop pushing a
+moving `:latest`, pass the git-SHA tag through to `deploy.sh`, pull `:$SHA`,
+then IMMUTABLE becomes safe.
+
+---
+
+## 5.7 Application-Layer Security (v5.0)
+
+Hardening inside the Next.js app itself, complementing the infra controls above.
+
+| Control | Implementation | Defends against |
+|---|---|---|
+| API key never logged | Removed `logging.fetches.fullUrl` from `next.config.ts` | Key leak to CloudWatch (fetch URLs carry `?appid=<key>`) |
+| HTTP security headers | `next.config.ts headers()`: HSTS, X-Frame-Options DENY, X-Content-Type-Options, Referrer-Policy, Permissions-Policy; `poweredByHeader: false` | Clickjacking, MIME-sniffing, version disclosure |
+| Tile coord validation | `/api/weather/[layer]/[z]/[x]/[y]` validates `z/x/y` as non-negative ints, zoom ≤ 20 | Parameter injection into upstream OpenWeather URL |
+| Query encoding | `/api/geocode` `encodeURIComponent`s the query | Injection into upstream URL |
+| Fixed upstream host | Both proxies hardcode the OpenWeather host | Arbitrary SSRF |
+| Rate limiting | `lib/rate-limit.ts` in-memory fixed-window limiter; geocode 30/min, tiles 120/min per client; `429` + `Retry-After` | API-quota exhaustion / cost DoS on the public endpoint |
+| Dependency posture | `next` 16.1.6 → 16.2.9 (HIGH cleared); `qs`/`protocol-buffers-schema` patched. 2 remaining moderates = transitive build-time PostCSS XSS (no runtime path) — triaged/accepted | Known-vuln dependencies |
+
+> Verified clean via audit: API key **never** appears in git history; no `dangerouslySetInnerHTML`/`eval`/`innerHTML`/`child_process`; `.env.local` untracked; key is server-side only (no `NEXT_PUBLIC_`).
+
 ---
 
 ## 6. Quality Gates
@@ -279,22 +317,24 @@ Runs on every PR from `dev` → `main`. PR cannot merge unless all required jobs
 
 | Job | Framework | Tests | Blocks merge? |
 |---|---|---|---|
-| unit-tests | Vitest | 11 unit tests + 60% coverage threshold | Yes |
+| unit-tests | Vitest | 58 unit tests across 5 files + 60% coverage threshold | Yes |
 | e2e-and-smoke | Playwright | 9 E2E tests (homepage + API routes) | Yes |
 | e2e-and-smoke | pytest | 9 smoke tests (homepage + geocode + tile API) | Yes |
-| sonarcloud | SonarCloud | Static analysis + security hotspots | No (informational) |
+| sonarcloud | SonarCloud | Static analysis + security hotspots (`projectBaseDir: weather-app`) | No (informational) |
 | production-gate | Evaluator | Aggregates above results | Yes (required check) |
+
+> CI hygiene note: the separate `ci.yml` Trivy image scan is **informational** (`exit-code: 0`, `ignore-unfixed: true`) — it reports CVEs to the GitHub Security tab via SARIF but does not block, since the `CI Gate (required)` check does not depend on it.
 
 **Critical rule:** `secrets` context MUST NOT appear in job-level `if:` conditions — causes 0-second workflow failure. Use step-level env var checks instead.
 
 ### 6.2 Test Suite Details
 
-**Vitest (unit)** — `weather-app/__tests__/units.test.ts`
-- `convertTemp`: 0°C→32°F, 100°C→212°F, -40 edge case, passthrough
-- `convertWindSpeed`: m/s, km/h, mph, knots
-- `convertPressure`: hPa, inHg
-- `convertDistance`: km, miles
-- `convertPrecipitation`: mm, inches
+**Vitest (unit)** — `weather-app/__tests__/` (5 files, 58 tests)
+- `units.test.ts`: convertTemp (+32, -40 edge), convertWindSpeed, convertPressure, convertDistance, convertPrecipitation
+- `utils.test.ts`: `cn()` className merge
+- `weather-background.test.ts`: day/night gradients (vi.setSystemTime)
+- `weather-emoji.test.ts`: emoji mapping + fallbacks
+- `rate-limit.test.ts`: fixed-window limiter, client-IP extraction, header emission, window reset (9 tests)
 
 **Playwright (E2E)** — `weather-app/e2e/`
 - `homepage.spec.ts`: HTTP 200, HTML content type, app name, lat/lon params
@@ -449,6 +489,10 @@ Production: SSM SecureString in ap-south-1.
 | 015 | Vitest over Jest | Native ESM. Zero config for esnext/bundler moduleResolution. |
 | 016 | SonarCloud over self-hosted | t2.micro 1 GB RAM < SonarQube 2 GB minimum. Cloud-hosted is free for public repos. |
 | 017 | GitHub Actions for quality gate | Gate runs BEFORE merge. If it fails, qa/prod branch never receives broken code. |
+| 018 | Canary + auto-rollback in deploy.sh | Health-check new image on port 3001 before swap; roll back to previous image if post-deploy check fails. Near-zero-downtime without an ALB. |
+| 019 | In-memory rate limiting (not Redis) | Single-instance EC2 → process-local Map is the correct fit. Public `rateLimit()` API unchanged when swapping to ElastiCache behind an ALB. |
+| 020 | Security headers without CSP (yet) | HSTS/X-Frame/etc. are safe immediately; a CSP needs testing against MapLibre tile/style/worker origins, so it's deferred to avoid breaking the map. |
+| 021 | Triage transitive PostCSS CVE vs blind bump | npm's only "fix" was a Next 9 downgrade (major regression). Build-time-only, no runtime path → accept & document rather than break the app. |
 
 ---
 
@@ -458,5 +502,6 @@ Production: SSM SecureString in ap-south-1.
 |---|---|---|
 | 1 | Next.js app, MapLibre, Docker multi-stage, GitHub Actions CI (lint/type-check) | COMPLETE |
 | 2 | CDK 5-stack IaC, 2 envs (dev+prod), ap-south-1, Elastic IP, CW logs, deployed | COMPLETE |
-| 3 | Production Gate (Vitest + Playwright + pytest + SonarCloud), branch protection | COMPLETE |
-| 4 | CloudWatch Alarms, HTTPS/ALB (prod), structured logging, production deploy demo | PLANNED |
+| 3 | Production Gate (Vitest + Playwright + pytest + SonarCloud), branch protection enforced, PR #4 merged to main | COMPLETE |
+| 3.5 | Security & reliability hardening: deploy.sh canary+rollback, key-leak fixes, headers, rate limiting, dep patching, forecast-fetch dedupe | COMPLETE (v5.0) |
+| 4 | **Deploy PROD infra** (`cdk deploy --context deploy-env=prod`), confirm SNS subscription, CloudWatch Alarms, HTTPS/ALB+ACM, `/api/health`, structured logging | PLANNED |
