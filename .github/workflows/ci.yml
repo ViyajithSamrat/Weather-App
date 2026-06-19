@@ -1,0 +1,156 @@
+name: CI — Lint, Type-check, Docker Validate
+
+on:
+  push:
+    branches:
+      - dev
+      - qa
+      - staging
+      - main
+      - 'feature/**'
+      - 'hotfix/**'
+  pull_request:
+    branches:
+      - dev
+      - qa
+      - staging
+      - main
+
+# Cancel any in-progress CI run for the same branch on new push
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Job 1: Lint + Type Check
+  # ---------------------------------------------------------------------------
+  quality:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: weather-app
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: weather-app/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --frozen-lockfile
+
+      - name: ESLint
+        run: npm run lint
+
+      - name: TypeScript type check
+        run: npx tsc --noEmit
+
+  # ---------------------------------------------------------------------------
+  # Job 2: Docker Build Validation (dry-run — no push)
+  # Validates Dockerfile syntax and that next build succeeds inside Docker.
+  # Uses dummy API key values so the build doesn't block on missing secrets.
+  # ---------------------------------------------------------------------------
+  docker-validate:
+    name: Docker Build Validate
+    runs-on: ubuntu-latest
+    # Only run on PRs and pushes to protected branches — skip feature/* for speed
+    if: |
+      github.ref == 'refs/heads/dev' ||
+      github.ref == 'refs/heads/qa'  ||
+      github.ref == 'refs/heads/staging' ||
+      github.ref == 'refs/heads/main' ||
+      github.event_name == 'pull_request'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validate Docker build (no push)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: weather-app:ci-validate
+          # Cache layers between runs using GitHub Actions cache
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Security Scan (Trivy — runs on PRs to staging and main only)
+  # ---------------------------------------------------------------------------
+  security-scan:
+    name: Trivy Security Scan
+    runs-on: ubuntu-latest
+    needs: docker-validate
+    if: |
+      github.event_name == 'pull_request' &&
+      (github.base_ref == 'staging' || github.base_ref == 'main')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image for scanning
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          load: true
+          tags: weather-app:scan
+          cache-from: type=gha
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: weather-app:scan
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: '0'
+          ignore-unfixed: true
+
+      - name: Upload Trivy SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+  # ---------------------------------------------------------------------------
+  # Job 4: Status gate — required check for branch protection rules
+  # All branch protection rules reference THIS job, not individual jobs.
+  # If any upstream job fails, this job fails and the PR is blocked.
+  # ---------------------------------------------------------------------------
+  ci-gate:
+    name: CI Gate (required)
+    runs-on: ubuntu-latest
+    needs: [quality, docker-validate]
+    if: always()
+    steps:
+      - name: Evaluate CI result
+        run: |
+          if [[ "${{ needs.quality.result }}" != "success" ]]; then
+            echo "::error::Lint/type-check failed"
+            exit 1
+          fi
+          if [[ "${{ needs.docker-validate.result }}" != "success" && "${{ needs.docker-validate.result }}" != "skipped" ]]; then
+            echo "::error::Docker validation failed"
+            exit 1
+          fi
+          echo "All CI checks passed."

@@ -1,0 +1,53 @@
+# ── Next.js build output (at any depth) ──────────────────────────────────────
+.next
+out
+**/.next
+**/out
+
+# ── Dependencies — exclude at ALL depths, not just root ──────────────────────
+node_modules
+**/node_modules
+
+# ── Environment / secrets (NEVER bake into image) ────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ── IaC / DevOps (not needed in build context) ───────────────────────────────
+infra/
+.aws/
+.github/
+docker-compose*.yml
+Makefile
+
+# ── VCS ───────────────────────────────────────────────────────────────────────
+.git
+.gitignore
+
+# ── Editor / OS artifacts ─────────────────────────────────────────────────────
+.DS_Store
+*.pem
+.vscode/
+.idea/
+Thumbs.db
+
+# ── Logs & debug ──────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ── TypeScript incremental cache ──────────────────────────────────────────────
+*.tsbuildinfo
+next-env.d.ts
+
+# ── Test artifacts ────────────────────────────────────────────────────────────
+coverage/
+__tests__/
+*.test.ts
+*.spec.ts
+
+# ── Documentation ─────────────────────────────────────────────────────────────
+docs/
+*.md
+!README.md
