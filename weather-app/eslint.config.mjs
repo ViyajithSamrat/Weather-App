@@ -12,6 +12,12 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Test infrastructure — linted by Vitest/Playwright, not ESLint
+    "__tests__/**",
+    "e2e/**",
+    "vitest.config.ts",
+    "vitest.setup.ts",
+    "playwright.config.ts",
   ]),
 ]);
 
