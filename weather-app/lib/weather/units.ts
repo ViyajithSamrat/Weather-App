@@ -18,7 +18,7 @@ export function convertTemp(
   celsius: number,
   unit: WeatherUnits["temperature"],
 ): number {
-  if (unit === "fahrenheit") return (celsius * 9) / 5 + 99;
+  if (unit === "fahrenheit") return (celsius * 9) / 5 + 32;
   return celsius;
 }
 
