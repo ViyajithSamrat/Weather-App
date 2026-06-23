@@ -124,21 +124,7 @@ export default async function Home({
 
   return (
     <div className="dark:bg-background flex h-screen overflow-hidden bg-zinc-100">
-      <div style={{
-        position: "fixed",
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 9999,
-        background: "#16a34a",
-        color: "#ffffff",
-        textAlign: "center",
-        padding: "10px",
-        fontSize: "15px",
-        fontWeight: "bold"
-      }}>
-        🚀 Pipeline Demo v2 — Auto Deployed via AWS CodePipeline + CodeBuild
-      </div>
+
 
       <Sidebar defaultOpen={sidebarOpen} temperatureUnit={units.temperature} />
 
