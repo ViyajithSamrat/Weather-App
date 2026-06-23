@@ -123,6 +123,7 @@ export default async function Home({
 
   return (
     <div className="dark:bg-background flex h-screen overflow-hidden bg-zinc-100">
+
       <Sidebar defaultOpen={sidebarOpen} temperatureUnit={units.temperature} />
 
       <div className="@container flex min-h-0 flex-1 flex-col overflow-y-auto p-3 md:pl-0">
