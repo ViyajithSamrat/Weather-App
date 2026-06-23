@@ -1,8 +1,7 @@
 "use client";
 
 import { OpenWeatherHourlyForecast4DaysResponse } from "@/types/openweather";
-import { format } from "date-fns";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { WeatherUnits } from "@/types/weather-units";

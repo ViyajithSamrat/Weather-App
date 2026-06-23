@@ -1,0 +1,563 @@
+{
+  "nodes": [
+    {
+      "id": "readme_weatherapp",
+      "label": "Weather App — Enterprise Internship Project",
+      "file_type": "document",
+      "source_file": "README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "readme_vertexweather",
+      "label": "Vertex Weather App",
+      "file_type": "document",
+      "source_file": "weather-app/README.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hld_document",
+      "label": "High-Level Design (HLD) v3.0",
+      "file_type": "document",
+      "source_file": "docs/HLD.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hld_multienv",
+      "label": "Multi-Environment Architecture (dev/qa/staging/prod)",
+      "file_type": "rationale",
+      "source_file": "docs/HLD.md",
+      "source_location": "Multi-Environment Architecture",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hld_cdk_stacks",
+      "label": "Five CDK Stacks (vpc/security/ecr/ec2/pipeline)",
+      "file_type": "rationale",
+      "source_file": "docs/HLD.md",
+      "source_location": "AWS Infrastructure",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hld_ssm_secrets",
+      "label": "SSM Parameter Store Secrets Management",
+      "file_type": "rationale",
+      "source_file": "docs/HLD.md",
+      "source_location": "Secrets Management",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hld_cloudwatch_logs",
+      "label": "CloudWatch Logs via awslogs Docker Driver",
+      "file_type": "rationale",
+      "source_file": "docs/HLD.md",
+      "source_location": "ADR 010",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hld_cost_model",
+      "label": "Zero-Cost AWS Free Tier Model",
+      "file_type": "rationale",
+      "source_file": "docs/HLD.md",
+      "source_location": "Cost Model",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hld_iam_leastprivilege",
+      "label": "IAM Least-Privilege Summary",
+      "file_type": "rationale",
+      "source_file": "docs/HLD.md",
+      "source_location": "IAM Least-Privilege Summary",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hld_promotion_flow",
+      "label": "Promotion Flow (feature to dev to qa to staging to prod)",
+      "file_type": "rationale",
+      "source_file": "docs/HLD.md",
+      "source_location": "Promotion Flow",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hld_ec2_over_ecs",
+      "label": "ADR 001: EC2 t2.micro over ECS Fargate (free tier)",
+      "file_type": "rationale",
+      "source_file": "docs/HLD.md",
+      "source_location": "ADRs",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hld_no_alb_devqa",
+      "label": "ADR 002: No ALB in dev/qa",
+      "file_type": "rationale",
+      "source_file": "docs/HLD.md",
+      "source_location": "ADRs",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hld_sns_approval",
+      "label": "SNS Manual Approval Gate (staging/prod)",
+      "file_type": "rationale",
+      "source_file": "docs/HLD.md",
+      "source_location": "ADR 013",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "hld_week_roadmap",
+      "label": "Week Roadmap (Weeks 1-4)",
+      "file_type": "document",
+      "source_file": "docs/HLD.md",
+      "source_location": "Week Roadmap",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "ci_githubactions",
+      "label": "GitHub Actions CI Workflow",
+      "file_type": "document",
+      "source_file": ".github/workflows/ci.yml",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "ci_trivy",
+      "label": "Trivy Vulnerability Scanner",
+      "file_type": "rationale",
+      "source_file": ".github/workflows/ci.yml",
+      "source_location": "jobs.security-scan",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "branching_strategy",
+      "label": "Branching Strategy & Git Flow v3.0",
+      "file_type": "document",
+      "source_file": "docs/BRANCHING.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "branching_polyrepo",
+      "label": "Polyrepo: Weather-App + Weather-App-IAC",
+      "file_type": "rationale",
+      "source_file": "docs/BRANCHING.md",
+      "source_location": "Repository Architecture",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "branching_rollback",
+      "label": "Rollback Strategy",
+      "file_type": "rationale",
+      "source_file": "docs/BRANCHING.md",
+      "source_location": "Rollback Strategy",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dockerfile_checklist",
+      "label": "Dockerfile Validation Checklist v1.1",
+      "file_type": "document",
+      "source_file": "docs/DOCKERFILE_CHECKLIST.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dockerfile_multistage",
+      "label": "Multi-Stage Dockerfile (deps/builder/runner)",
+      "file_type": "rationale",
+      "source_file": "docs/DOCKERFILE_CHECKLIST.md",
+      "source_location": "Multi-Stage Build Structure",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "dockerfile_nonroot",
+      "label": "Non-Root User (nextjs uid 1001)",
+      "file_type": "rationale",
+      "source_file": "docs/DOCKERFILE_CHECKLIST.md",
+      "source_location": "Security",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "prodreadiness_document",
+      "label": "Production Readiness Assessment v3.0",
+      "file_type": "document",
+      "source_file": "docs/PRODUCTION_READINESS.md",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "prodreadiness_week2gate",
+      "label": "Gate 2: Week 2 CDK IaC (COMPLETE)",
+      "file_type": "document",
+      "source_file": "docs/PRODUCTION_READINESS.md",
+      "source_location": "Gate 2",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "prodreadiness_week3gate",
+      "label": "Gate 3: Week 3 Monitoring + QA (PENDING)",
+      "file_type": "document",
+      "source_file": "docs/PRODUCTION_READINESS.md",
+      "source_location": "Gate 3",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "prodreadiness_bugfixes",
+      "label": "Pipeline Bug Fixes Applied (Week 2 v2)",
+      "file_type": "document",
+      "source_file": "docs/PRODUCTION_READINESS.md",
+      "source_location": "Bug Fixes Applied",
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "readme_dockercompose",
+      "label": "Docker Compose (local orchestration)",
+      "file_type": "document",
+      "source_file": "docker-compose.yml",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "android_chrome_192_favicon",
+      "label": "Android Chrome 192x192 Favicon",
+      "file_type": "image",
+      "source_file": "weather-app/app/android-chrome-192x192.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "android_chrome_512_favicon",
+      "label": "Android Chrome 512x512 Favicon",
+      "file_type": "image",
+      "source_file": "weather-app/app/android-chrome-512x512.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "apple_touch_icon",
+      "label": "Apple Touch Icon",
+      "file_type": "image",
+      "source_file": "weather-app/app/apple-touch-icon.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "favicon_16",
+      "label": "Favicon 16x16",
+      "file_type": "image",
+      "source_file": "weather-app/app/favicon-16x16.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "favicon_32",
+      "label": "Favicon 32x32",
+      "file_type": "image",
+      "source_file": "weather-app/app/favicon-32x32.png",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "public_next_svg",
+      "label": "Next.js Logo SVG",
+      "file_type": "image",
+      "source_file": "weather-app/public/next.svg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    },
+    {
+      "id": "public_vercel_svg",
+      "label": "Vercel Logo SVG",
+      "file_type": "image",
+      "source_file": "weather-app/public/vercel.svg",
+      "source_location": null,
+      "source_url": null,
+      "captured_at": null,
+      "author": null,
+      "contributor": null
+    }
+  ],
+  "edges": [
+    {
+      "source": "hld_document",
+      "target": "hld_multienv",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/HLD.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "hld_document",
+      "target": "hld_cdk_stacks",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/HLD.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "hld_pipeline_stack",
+      "target": "hld_sns_approval",
+      "relation": "implements",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/HLD.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "hld_ec2_over_ecs",
+      "target": "hld_cost_model",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/HLD.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "branching_polyrepo",
+      "target": "hld_promotion_flow",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.85,
+      "source_file": "docs/BRANCHING.md",
+      "source_location": null,
+      "weight": 0.85
+    },
+    {
+      "source": "prodreadiness_document",
+      "target": "hld_document",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/PRODUCTION_READINESS.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "prodreadiness_week2gate",
+      "target": "hld_cdk_stacks",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/PRODUCTION_READINESS.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "prodreadiness_bugfixes",
+      "target": "hld_pipeline_stack",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/PRODUCTION_READINESS.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "ci_githubactions",
+      "target": "ci_trivy",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": ".github/workflows/ci.yml",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "branching_strategy",
+      "target": "branching_rollback",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/BRANCHING.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "branching_strategy",
+      "target": "branching_polyrepo",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/BRANCHING.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "dockerfile_checklist",
+      "target": "dockerfile_multistage",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/DOCKERFILE_CHECKLIST.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "dockerfile_checklist",
+      "target": "dockerfile_nonroot",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "docs/DOCKERFILE_CHECKLIST.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "readme_weatherapp",
+      "target": "readme_dockercompose",
+      "relation": "references",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "README.md",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "android_chrome_192_favicon",
+      "target": "android_chrome_512_favicon",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "weather-app/app/android-chrome-192x192.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "android_chrome_192_favicon",
+      "target": "apple_touch_icon",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "weather-app/app/android-chrome-192x192.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "favicon_16",
+      "target": "favicon_32",
+      "relation": "conceptually_related_to",
+      "confidence": "EXTRACTED",
+      "confidence_score": 1.0,
+      "source_file": "weather-app/app/favicon-16x16.png",
+      "source_location": null,
+      "weight": 1.0
+    },
+    {
+      "source": "public_next_svg",
+      "target": "public_vercel_svg",
+      "relation": "conceptually_related_to",
+      "confidence": "INFERRED",
+      "confidence_score": 0.95,
+      "source_file": "weather-app/public/next.svg",
+      "source_location": null,
+      "weight": 0.95
+    }
+  ],
+  "hyperedges": [],
+  "input_tokens": 48130,
+  "output_tokens": 520
+}

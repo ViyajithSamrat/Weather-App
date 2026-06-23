@@ -87,6 +87,9 @@ export default function Map({ lat, lon }: { lat: number; lon: number }) {
       map.remove();
       mapRef.current = null;
     };
+    // Initialise the map exactly once. lat/lon changes are handled by the
+    // dedicated flyTo effect below, so they intentionally aren't deps here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {

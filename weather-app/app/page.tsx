@@ -84,7 +84,15 @@ export default async function Home({
   const sidebarOpen = cookieStore.get("SIDEBAR_STATE")?.value === "true";
   // Get weather units from cookie store
   const raw = cookieStore.get("WEATHER_UNITS")?.value;
-  const units: WeatherUnits = raw ? JSON.parse(raw) : DEFAULT_WEATHER_UNITS;
+  // Guard against a malformed/tampered cookie crashing the entire page render.
+  let units: WeatherUnits = DEFAULT_WEATHER_UNITS;
+  if (raw) {
+    try {
+      units = JSON.parse(raw);
+    } catch {
+      // keep defaults
+    }
+  }
 
   const { lat = DEFAULT_LAT, lon = DEFAULT_LON } = await searchParams;
 
@@ -113,23 +121,17 @@ export default async function Home({
     );
   }
 
-  /*
-   * Logs for debugging
-   */
-  // console.log("Current:", current);
-  // console.log("Air Pollution:", airPollution.list[0]);
-  // console.log("UV Index:", uvIndex);
-  // console.log("Hourly Forecast:", hourlyForecast);
-  // console.log("Daily Forecast:", dailyForecast);
-
   return (
     <div className="dark:bg-background flex h-screen overflow-hidden bg-zinc-100">
-
 
       <Sidebar defaultOpen={sidebarOpen} temperatureUnit={units.temperature} />
 
       <div className="@container flex min-h-0 flex-1 flex-col overflow-y-auto p-3 md:pl-0">
         <Header />
+
+        <div className="bg-blue-600 text-white text-center p-2 font-bold rounded-md mb-4">
+          🚀 Live Demo: End-to-End Pipeline in Action!
+        </div>
 
         <motion.main
           layout

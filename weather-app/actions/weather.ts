@@ -39,30 +39,48 @@ export async function getCurrentWeather(
   return res.json() as Promise<OpenWeatherCurrentWeatherResponse>;
 }
 
-// Free tier uses /forecast (3-hourly, 5 days, max 40 items).
-// The paid /forecast/hourly endpoint is not available on free keys.
+// Single source of truth for the 3-hourly /forecast endpoint (free tier:
+// 3-hourly, 5 days, max 40 items — the paid /forecast/hourly is not available
+// on free keys). Both the hourly card and the daily card derive from this ONE
+// call. Fetching with a STABLE URL (fixed param order) lets Next dedupe + cache
+// it, so a page rendering both cards makes a single forecast request instead of
+// two near-identical ones — halving forecast quota usage.
+async function getForecastRaw(
+  lat: number,
+  lon: number,
+): Promise<OpenWeatherHourlyForecast4DaysResponse> {
+  const params = new URLSearchParams({
+    lat: String(lat),
+    lon: String(lon),
+    cnt: "40",
+    units: "metric",
+    appid: getApiKey(),
+  });
+
+  const res = await fetch(`${BASE_URL}/forecast?${params}`, {
+    next: { revalidate: 1800, tags: ["forecast"] },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Failed to fetch forecast data: ${res.statusText}`);
+  }
+
+  return res.json() as Promise<OpenWeatherHourlyForecast4DaysResponse>;
+}
+
 export async function getHourlyForecast4Days(
   lat: number,
   lon: number,
   cnt: number = 40,
 ): Promise<OpenWeatherHourlyForecast4DaysResponse> {
-  const params = new URLSearchParams({
-    lat: String(lat),
-    lon: String(lon),
-    cnt: String(Math.min(cnt, 40)),
-    appid: getApiKey(),
-    units: "metric",
-  });
-
-  const res = await fetch(`${BASE_URL}/forecast?${params}`, {
-    next: { revalidate: 1800 },
-  });
-
-  if (!res.ok) {
-    throw new Error("Failed to fetch hourly forecast data.");
-  }
-
-  return res.json() as Promise<OpenWeatherHourlyForecast4DaysResponse>;
+  const forecast = await getForecastRaw(lat, lon);
+  const limit = Math.min(cnt, 40);
+  // Same response shape, trimmed to the requested number of 3-hour slots.
+  return {
+    ...forecast,
+    list: forecast.list.slice(0, limit),
+    cnt: Math.min(limit, forecast.list.length),
+  };
 }
 
 export async function getCurrentWeatherBatch(cities: SavedCity[]): Promise<
@@ -130,21 +148,9 @@ export async function getDailyForecast16Days(
   lon: number,
   days: number = 10,
 ): Promise<OpenWeatherDailyForecast16DaysResponse> {
-  const params = new URLSearchParams({
-    lat: String(lat),
-    lon: String(lon),
-    cnt: "40",
-    units: "metric",
-    appid: getApiKey(),
-  });
-
-  const res = await fetch(`${BASE_URL}/forecast?${params}`, {
-    next: { revalidate: 1800 },
-  });
-
-  if (!res.ok) throw new Error("Failed to fetch daily forecast data.");
-
-  const hourly: OpenWeatherHourlyForecast4DaysResponse = await res.json();
+  // Reuse the shared, deduped/cached forecast fetch instead of a 2nd upstream
+  // call — this is the same data the hourly card already requested.
+  const hourly = await getForecastRaw(lat, lon);
 
   // Group 3-hour slots by calendar date
   const byDate = new Map<string, typeof hourly.list>();
