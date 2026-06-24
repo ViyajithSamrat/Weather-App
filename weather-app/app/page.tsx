@@ -129,6 +129,9 @@ export default async function Home({
       <div className="@container flex min-h-0 flex-1 flex-col overflow-y-auto p-3 md:pl-0">
         <Header />
 
+        <div className="bg-blue-600 text-white text-center p-2 font-bold rounded-md mb-4">
+          🚀 Live Demo: End-to-End Pipeline in Action!
+        </div>
 
         <motion.main
           layout
